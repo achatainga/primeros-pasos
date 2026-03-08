@@ -3,7 +3,8 @@ import { collection, getDocs, deleteDoc, doc, addDoc, updateDoc, Timestamp } fro
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
 import { toast } from 'react-toastify';
-import { Lock, Users, BookOpen, Trash2, Edit2, Save, X, Plus, Upload } from 'lucide-react';
+import { Lock, Users, BookOpen, Trash2, Edit2, Save, X, Plus, Upload, Mail } from 'lucide-react';
+import emailjs from '@emailjs/browser';
 
 interface Estudiante {
   id: string;
@@ -164,6 +165,28 @@ export default function Admin() {
     }
   };
 
+  const enviarEmailPrueba = async () => {
+    try {
+      await emailjs.send(
+        import.meta.env.VITE_EMAILJS_SERVICE_ID || '',
+        import.meta.env.VITE_EMAILJS_TEMPLATE_ID || '',
+        {
+          to_email: 'admin@test.com',
+          student_name: 'Estudiante de Prueba',
+          course_name: 'Curso de Prueba',
+          course_date: '15/03/2025',
+          course_hour: '7:00 PM',
+          message: 'Este es un email de prueba desde el panel de administración'
+        },
+        import.meta.env.VITE_EMAILJS_PUBLIC_KEY || ''
+      );
+      toast.success('Email de prueba enviado');
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al enviar email. Verifica la configuración de EmailJS');
+    }
+  };
+
   if (!authenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -205,9 +228,18 @@ export default function Admin() {
               <h1 className="text-3xl font-bold text-white">Panel de Administración</h1>
               <p className="text-slate-400 mt-1">Primeros Pasos</p>
             </div>
-            <a href="/" className="bg-slate-800 hover:bg-slate-700 text-white font-semibold py-2 px-4 rounded-lg border border-slate-700">
-              Volver al Registro
-            </a>
+            <div className="flex gap-2">
+              <button
+                onClick={enviarEmailPrueba}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold py-2 px-4 rounded-lg flex items-center gap-2"
+              >
+                <Mail size={20} />
+                Enviar Email Prueba
+              </button>
+              <a href="/" className="bg-slate-800 hover:bg-slate-700 text-white font-semibold py-2 px-4 rounded-lg border border-slate-700">
+                Volver al Registro
+              </a>
+            </div>
           </div>
         </div>
 
