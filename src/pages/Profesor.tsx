@@ -181,7 +181,7 @@ export default function Profesor() {
     toast.info('Subiendo material...');
     try {
       const client = new UploadClient({ publicKey: import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY });
-      const result = await client.uploadFile(file, { store: 1 });
+      const result = await client.uploadFile(file, { store: 'auto' });
       const url = `https://2wlj9bh4ya.ucarecd.net/${result.uuid}/${result.name}`;
       
       const curso = cursos.find(c => c.id === cursoId);
