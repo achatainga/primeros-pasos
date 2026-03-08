@@ -16,7 +16,7 @@ interface Curso {
   nombre: string;
   fechaInicio: string;
   hora: string;
-  materiales: string[];
+  materiales: Array<{url: string; name: string}>;
   profesorId?: string;
   profesorNombre?: string;
 }
@@ -200,21 +200,18 @@ export default function Estudiante() {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg p-6 mb-6">
             <h2 className="text-2xl font-bold text-white mb-4">Materiales del Curso</h2>
             <div className="space-y-3">
-              {curso.materiales.map((url, idx) => {
-                const fileName = url.split('/').pop() || `Material ${idx + 1}`;
-                return (
-                  <a
-                    key={idx}
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
-                  >
-                    <Download className="text-amber-500" size={20} />
-                    <span className="text-white">{fileName}</span>
-                  </a>
-                );
-              })}
+              {curso.materiales.map((material, idx) => (
+                <a
+                  key={idx}
+                  href={material.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+                >
+                  <Download className="text-amber-500" size={20} />
+                  <span className="text-white">{material.name}</span>
+                </a>
+              ))}
             </div>
           </div>
         )}

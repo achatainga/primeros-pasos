@@ -23,7 +23,7 @@ interface Curso {
   fechaInicio: string;
   hora: string;
   estado: 'abierto' | 'cerrado';
-  materiales: string[];
+  materiales: Array<{url: string; name: string}>;
   profesorId?: string;
   profesorNombre?: string;
 }
@@ -33,6 +33,7 @@ interface EditingCurso {
   nombre: string;
   fechaInicio: string;
   hora: string;
+  profesorId?: string;
 }
 
 interface Profesor {
@@ -40,6 +41,7 @@ interface Profesor {
   nombre: string;
   telefono: string;
   email: string;
+  password: string;
 }
 
 export default function Admin() {
@@ -61,6 +63,9 @@ export default function Admin() {
   const [editingCurso, setEditingCurso] = useState<EditingCurso | null>(null);
   const [profesores, setProfesores] = useState<Profesor[]>([]);
   const [profesorSeleccionado, setProfesorSeleccionado] = useState('');
+  const [showProfesorForm, setShowProfesorForm] = useState(false);
+  const [profesorForm, setProfesorForm] = useState({ nombre: '', telefono: '', email: '', password: '' });
+  const [editingProfesor, setEditingProfesor] = useState<string | null>(null);
 
   const ADMIN_PASSWORD = 'PrimerosPasos2026';
 
@@ -160,17 +165,18 @@ export default function Admin() {
 
   const handleUploadMaterial = async (cursoId: string, file: File) => {
     setUploadingFile(true);
+    toast.info('Subiendo material...');
     try {
       const client = new UploadClient({ publicKey: import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY });
-      const result = await client.uploadFile(file);
-      const url = `https://ucarecdn.com/${result.uuid}/${file.name}`;
+      const result = await client.uploadFile(file, { store: 1 });
+      const url = `https://2wlj9bh4ya.ucarecd.net/${result.uuid}/${result.name}`;
       
       const curso = cursos.find(c => c.id === cursoId);
       if (curso) {
         await updateDoc(doc(db, 'cursos', cursoId), {
-          materiales: [...(curso.materiales || []), url]
+          materiales: [...(curso.materiales || []), { url, name: result.originalFilename || result.name }]
         });
-        toast.success('Material subido');
+        toast.success('Material subido exitosamente');
         cargarDatos();
       }
     } catch (error) {
@@ -216,11 +222,14 @@ export default function Admin() {
 
   const handleEditCurso = async () => {
     if (!editingCurso) return;
+    const profesor = profesores.find(p => p.id === editingCurso.profesorId);
     try {
       await updateDoc(doc(db, 'cursos', editingCurso.id), {
         nombre: editingCurso.nombre,
         fechaInicio: editingCurso.fechaInicio,
-        hora: editingCurso.hora
+        hora: editingCurso.hora,
+        profesorId: editingCurso.profesorId,
+        profesorNombre: profesor?.nombre || ''
       });
       toast.success('Curso actualizado');
       setEditingCurso(null);
@@ -250,6 +259,47 @@ export default function Admin() {
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al enviar email. Verifica la configuración de EmailJS');
+    }
+  };
+
+  const handleCreateProfesor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await addDoc(collection(db, 'contactoProfesor'), profesorForm);
+      toast.success('Profesor creado');
+      setShowProfesorForm(false);
+      setProfesorForm({ nombre: '', telefono: '', email: '', password: '' });
+      cargarDatos();
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al crear profesor');
+    }
+  };
+
+  const handleUpdateProfesor = async () => {
+    if (!editingProfesor) return;
+    try {
+      await updateDoc(doc(db, 'contactoProfesor', editingProfesor), profesorForm);
+      toast.success('Profesor actualizado');
+      setEditingProfesor(null);
+      setProfesorForm({ nombre: '', telefono: '', email: '', password: '' });
+      cargarDatos();
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al actualizar profesor');
+    }
+  };
+
+  const handleDeleteProfesor = async (id: string, nombre: string) => {
+    if (confirm(`¿Eliminar profesor ${nombre}?`)) {
+      try {
+        await deleteDoc(doc(db, 'contactoProfesor', id));
+        toast.success('Profesor eliminado');
+        cargarDatos();
+      } catch (error) {
+        console.error('Error:', error);
+        toast.error('Error al eliminar profesor');
+      }
     }
   };
 
@@ -410,6 +460,16 @@ export default function Admin() {
                         className="px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
                       />
                     </div>
+                    <select
+                      value={editingCurso.profesorId || ''}
+                      onChange={(e) => setEditingCurso({...editingCurso, profesorId: e.target.value})}
+                      className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                    >
+                      <option value="">Seleccionar Profesor</option>
+                      {profesores.map(prof => (
+                        <option key={prof.id} value={prof.id}>{prof.nombre}</option>
+                      ))}
+                    </select>
                     <div className="flex gap-2">
                       <button onClick={handleEditCurso} className="bg-amber-500 hover:bg-amber-600 text-slate-900 px-4 py-2 rounded-lg">
                         Guardar
@@ -436,7 +496,7 @@ export default function Admin() {
                       </div>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => setEditingCurso({id: curso.id, nombre: curso.nombre, fechaInicio: curso.fechaInicio, hora: curso.hora})}
+                          onClick={() => setEditingCurso({id: curso.id, nombre: curso.nombre, fechaInicio: curso.fechaInicio, hora: curso.hora, profesorId: curso.profesorId})}
                           className="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-lg"
                           title="Editar curso"
                         >
@@ -456,7 +516,10 @@ export default function Admin() {
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
-                              if (file) handleUploadMaterial(curso.id, file);
+                              if (file) {
+                                handleUploadMaterial(curso.id, file);
+                                e.target.value = '';
+                              }
                             }}
                             disabled={uploadingFile}
                           />
@@ -473,33 +536,142 @@ export default function Admin() {
                     {curso.materiales?.length > 0 && (
                       <div className="mt-4 space-y-2">
                         <p className="text-sm font-semibold text-slate-300">Materiales ({curso.materiales.length}):</p>
-                        {curso.materiales.map((url, idx) => {
-                          const fileName = url.split('/').pop() || `Material ${idx + 1}`;
-                          return (
-                            <div key={idx} className="flex items-center justify-between bg-slate-700 p-2 rounded border border-slate-600">
-                              <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline truncate flex-1">
-                                {fileName}
-                              </a>
-                              <button
-                                onClick={async () => {
-                                  if (confirm(`¿Eliminar ${fileName}?`)) {
+                        {curso.materiales.map((material, idx) => (
+                          <div key={idx} className="flex items-center justify-between bg-slate-700 p-2 rounded border border-slate-600">
+                            <a href={material.url} target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline truncate flex-1">
+                              {material.name}
+                            </a>
+                            <button
+                              onClick={async () => {
+                                if (confirm(`¿Eliminar ${material.name}?`)) {
+                                  try {
+                                    // Extraer UUID de la URL
+                                    const uuid = material.url.split('/')[3];
+                                    if (uuid) {
+                                      // Eliminar de Uploadcare
+                                      await fetch(`https://api.uploadcare.com/files/${uuid}/`, {
+                                        method: 'DELETE',
+                                        headers: {
+                                          'Authorization': `Uploadcare.Simple ${import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY}:${import.meta.env.VITE_UPLOADCARE_SECRET_KEY || ''}`
+                                        }
+                                      });
+                                    }
+                                    // Eliminar de Firestore
                                     const nuevosMateriales = curso.materiales?.filter((_, i) => i !== idx) || [];
                                     await updateDoc(doc(db, 'cursos', curso.id), { materiales: nuevosMateriales });
                                     toast.success('Material eliminado');
                                     cargarDatos();
+                                  } catch (error) {
+                                    console.error('Error:', error);
+                                    toast.error('Error al eliminar material');
                                   }
-                                }}
-                                className="text-red-400 hover:text-red-300 ml-2"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          );
-                        })}
+                                }
+                              }}
+                              className="text-red-400 hover:text-red-300 ml-2"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </>
                 )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg p-6 mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-white">Profesores ({profesores.length})</h2>
+            <button
+              onClick={() => setShowProfesorForm(!showProfesorForm)}
+              className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold py-2 px-4 rounded-lg flex items-center gap-2"
+            >
+              <Plus size={20} />
+              Nuevo Profesor
+            </button>
+          </div>
+
+          {showProfesorForm && (
+            <form onSubmit={editingProfesor ? (e) => { e.preventDefault(); handleUpdateProfesor(); } : handleCreateProfesor} className="bg-slate-800 p-4 rounded-lg mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  required
+                  value={profesorForm.nombre}
+                  onChange={(e) => setProfesorForm({...profesorForm, nombre: e.target.value})}
+                  placeholder="Nombre completo"
+                  className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                />
+                <input
+                  type="tel"
+                  value={profesorForm.telefono}
+                  onChange={(e) => setProfesorForm({...profesorForm, telefono: e.target.value})}
+                  placeholder="Teléfono (opcional)"
+                  className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                />
+                <input
+                  type="email"
+                  value={profesorForm.email}
+                  onChange={(e) => setProfesorForm({...profesorForm, email: e.target.value})}
+                  placeholder="Email (opcional)"
+                  className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                />
+                <input
+                  type="text"
+                  required
+                  value={profesorForm.password}
+                  onChange={(e) => setProfesorForm({...profesorForm, password: e.target.value})}
+                  placeholder="Contraseña"
+                  className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                />
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button type="submit" className="bg-amber-500 hover:bg-amber-600 text-slate-900 py-2 px-4 rounded-lg">
+                  {editingProfesor ? 'Actualizar' : 'Crear'} Profesor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfesorForm(false);
+                    setEditingProfesor(null);
+                    setProfesorForm({ nombre: '', telefono: '', email: '', password: '' });
+                  }}
+                  className="bg-slate-700 hover:bg-slate-600 text-white py-2 px-4 rounded-lg"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div className="grid gap-3">
+            {profesores.map(prof => (
+              <div key={prof.id} className="border border-slate-700 rounded-lg p-4 bg-slate-800 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-white">{prof.nombre}</h3>
+                  <p className="text-sm text-slate-400">{prof.telefono} • {prof.email}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingProfesor(prof.id);
+                      setProfesorForm({ nombre: prof.nombre, telefono: prof.telefono, email: prof.email, password: prof.password || '' });
+                      setShowProfesorForm(true);
+                    }}
+                    className="text-amber-400 hover:text-amber-300"
+                  >
+                    <Edit2 size={18} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteProfesor(prof.id, prof.nombre)}
+                    className="text-red-400 hover:text-red-300"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

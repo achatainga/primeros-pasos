@@ -21,7 +21,7 @@ interface Curso {
   fechaInicio: string;
   hora: string;
   estado: string;
-  materiales?: string[];
+  materiales?: Array<{url: string; name: string}>;
   profesorId?: string;
   profesorNombre?: string;
 }
@@ -69,8 +69,6 @@ export default function Profesor() {
   });
   const [profesorId, setProfesorId] = useState('');
 
-  const PROFESOR_PASSWORD = 'PrimerosPasosMaestro';
-
   useEffect(() => {
     if (authenticated) {
       cargarCursos();
@@ -86,16 +84,21 @@ export default function Profesor() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === PROFESOR_PASSWORD) {
-      setAuthenticated(true);
-      toast.success('Acceso concedido');
-      // Cargar o crear ID del profesor
+    try {
       const snapshot = await getDocs(collection(db, 'contactoProfesor'));
-      if (!snapshot.empty) {
-        setProfesorId(snapshot.docs[0].id);
+      const profesor = snapshot.docs.find(doc => doc.data().password === password);
+      
+      if (profesor) {
+        setProfesorId(profesor.id);
+        setContactoProfesor(profesor.data() as any);
+        setAuthenticated(true);
+        toast.success('Acceso concedido');
+      } else {
+        toast.error('Contraseña incorrecta');
       }
-    } else {
-      toast.error('Contraseña incorrecta');
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al iniciar sesión');
     }
   };
 
@@ -175,17 +178,18 @@ export default function Profesor() {
 
   const handleUploadMaterial = async (cursoId: string, file: File) => {
     setUploadingFile(true);
+    toast.info('Subiendo material...');
     try {
       const client = new UploadClient({ publicKey: import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY });
-      const result = await client.uploadFile(file);
-      const url = `https://ucarecdn.com/${result.uuid}/${file.name}`;
+      const result = await client.uploadFile(file, { store: 1 });
+      const url = `https://2wlj9bh4ya.ucarecd.net/${result.uuid}/${result.name}`;
       
       const curso = cursos.find(c => c.id === cursoId);
       if (curso) {
         await updateDoc(doc(db, 'cursos', cursoId), {
-          materiales: [...(curso.materiales || []), url]
+          materiales: [...(curso.materiales || []), { url, name: result.originalFilename || result.name }]
         });
-        toast.success('Material subido');
+        toast.success('Material subido exitosamente');
         cargarCursos();
       }
     } catch (error) {
@@ -448,18 +452,16 @@ export default function Profesor() {
                 />
                 <input
                   type="tel"
-                  required
                   value={contactoProfesor.telefono}
                   onChange={(e) => setContactoProfesor({...contactoProfesor, telefono: e.target.value})}
-                  placeholder="Teléfono"
+                  placeholder="Teléfono (opcional)"
                   className="px-4 py-2 border border-gray-300 rounded-lg"
                 />
                 <input
                   type="email"
-                  required
                   value={contactoProfesor.email}
                   onChange={(e) => setContactoProfesor({...contactoProfesor, email: e.target.value})}
-                  placeholder="Email"
+                  placeholder="Email (opcional)"
                   className="px-4 py-2 border border-gray-300 rounded-lg"
                 />
               </div>
@@ -613,7 +615,10 @@ export default function Profesor() {
                             accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
-                              if (file) handleUploadMaterial(curso.id, file);
+                              if (file) {
+                                handleUploadMaterial(curso.id, file);
+                                e.target.value = '';
+                              }
                             }}
                             disabled={uploadingFile}
                           />
@@ -630,29 +635,43 @@ export default function Profesor() {
                     {curso.materiales && curso.materiales.length > 0 && (
                       <div className="mt-4 space-y-2">
                         <p className="text-sm font-semibold text-gray-700">Materiales ({curso.materiales.length}):</p>
-                        {curso.materiales.map((url, idx) => {
-                          const fileName = url.split('/').pop() || `Material ${idx + 1}`;
-                          return (
-                            <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-gray-200">
-                              <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline truncate flex-1">
-                                {fileName}
-                              </a>
-                              <button
-                                onClick={async () => {
-                                  if (confirm(`¿Eliminar ${fileName}?`)) {
+                        {curso.materiales.map((material, idx) => (
+                          <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-gray-200">
+                            <a href={material.url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline truncate flex-1">
+                              {material.name}
+                            </a>
+                            <button
+                              onClick={async () => {
+                                if (confirm(`¿Eliminar ${material.name}?`)) {
+                                  try {
+                                    // Extraer UUID de la URL
+                                    const uuid = material.url.split('/')[3];
+                                    if (uuid) {
+                                      // Eliminar de Uploadcare
+                                      await fetch(`https://api.uploadcare.com/files/${uuid}/`, {
+                                        method: 'DELETE',
+                                        headers: {
+                                          'Authorization': `Uploadcare.Simple ${import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY}:${import.meta.env.VITE_UPLOADCARE_SECRET_KEY || ''}`
+                                        }
+                                      });
+                                    }
+                                    // Eliminar de Firestore
                                     const nuevosMateriales = curso.materiales?.filter((_, i) => i !== idx) || [];
                                     await updateDoc(doc(db, 'cursos', curso.id), { materiales: nuevosMateriales });
                                     toast.success('Material eliminado');
                                     cargarCursos();
+                                  } catch (error) {
+                                    console.error('Error:', error);
+                                    toast.error('Error al eliminar material');
                                   }
-                                }}
-                                className="text-red-500 hover:text-red-700 ml-2"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          );
-                        })}
+                                }
+                              }}
+                              className="text-red-500 hover:text-red-700 ml-2"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </>

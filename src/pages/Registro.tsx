@@ -10,7 +10,7 @@ interface Curso {
   fechaInicio: string;
   hora: string;
   estado: 'abierto' | 'cerrado';
-  materiales: string[];
+  materiales: Array<{url: string; name: string}>;
 }
 
 export default function Registro() {
@@ -94,13 +94,13 @@ export default function Registro() {
                         {curso.materiales.map((material, idx) => (
                           <a
                             key={idx}
-                            href={material}
+                            href={material.url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-2 text-sm text-amber-500 hover:text-amber-400 mt-1"
                           >
                             <Download size={16} />
-                            Material {idx + 1}
+                            {material.name}
                           </a>
                         ))}
                       </div>
