@@ -3,6 +3,7 @@ import { collection, addDoc, getDocs, query, where, Timestamp } from 'firebase/f
 import { db } from '../lib/firebase';
 import { toast } from 'react-toastify';
 import { BookOpen, Download, Smartphone } from 'lucide-react';
+import emailjs from '@emailjs/browser';
 
 interface Curso {
   id: string;
@@ -76,7 +77,31 @@ export default function Registro() {
         fechaRegistro: Timestamp.now()
       });
 
-      toast.success('¡Registro exitoso! Te esperamos en el curso 📚');
+      // Enviar email si tiene correo
+      if (formData.correo) {
+        const cursoSeleccionado = cursos.find(c => c.id === formData.cursoId);
+        try {
+          await emailjs.send(
+            import.meta.env.VITE_EMAILJS_SERVICE_ID || '',
+            import.meta.env.VITE_EMAILJS_TEMPLATE_ID || '',
+            {
+              to_email: formData.correo,
+              student_name: formData.nombreApellido,
+              course_name: cursoSeleccionado?.nombre || '',
+              course_date: cursoSeleccionado?.fechaInicio || '',
+              course_hour: cursoSeleccionado?.hora || '',
+              message: `Bienvenido al curso ${cursoSeleccionado?.nombre}. Te esperamos el ${cursoSeleccionado?.fechaInicio} a las ${cursoSeleccionado?.hora}.`
+            },
+            import.meta.env.VITE_EMAILJS_PUBLIC_KEY || ''
+          );
+          toast.success('¡Registro exitoso! Revisa tu correo para más información 📧');
+        } catch (emailError) {
+          console.error('Error al enviar email:', emailError);
+          toast.success('¡Registro exitoso! Te esperamos en el curso 📚');
+        }
+      } else {
+        toast.success(`¡Registro exitoso! Ingresa con tu nombre "${formData.nombreApellido}" en Portal Estudiante`);
+      }
       setFormData({
         nombreApellido: '',
         telefono: '',
@@ -228,6 +253,11 @@ export default function Registro() {
           </form>
 
           <p className="text-center text-sm text-slate-400 mt-6">
+            ¿Ya estás registrado?{' '}
+            <a href="/estudiante" className="text-amber-500 hover:underline">
+              Portal Estudiante
+            </a>
+            <br />
             ¿Eres administrador o profesor?{' '}
             <a href="/admin" className="text-amber-500 hover:underline">
               Panel Admin

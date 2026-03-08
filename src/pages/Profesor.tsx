@@ -332,10 +332,10 @@ export default function Profesor() {
       return [
         idx + 1,
         est.nombreApellido,
-        asist?.clase1 ? '✓' : '☐',
-        asist?.clase2 ? '✓' : '☐',
-        asist?.clase3 ? '✓' : '☐',
-        asist?.clase4 ? '✓' : '☐'
+        asist?.clase1 ? '☑' : '☐',
+        asist?.clase2 ? '☑' : '☐',
+        asist?.clase3 ? '☑' : '☐',
+        asist?.clase4 ? '☑' : '☐'
       ];
     });
 
