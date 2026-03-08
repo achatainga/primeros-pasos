@@ -49,6 +49,10 @@ export default function Registro() {
         ...doc.data()
       })) as Curso[];
       setCursos(data);
+      // Seleccionar el último curso por defecto
+      if (data.length > 0 && !formData.cursoId) {
+        setFormData(prev => ({ ...prev, cursoId: data[data.length - 1].id }));
+      }
     } catch (error) {
       console.error('Error al cargar cursos:', error);
     }

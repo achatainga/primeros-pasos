@@ -109,6 +109,10 @@ export default function Profesor() {
       // Filtrar solo cursos del profesor actual
       const cursosFiltrados = todosCursos.filter(c => !c.profesorId || c.profesorId === profesorId);
       setCursos(cursosFiltrados);
+      // Seleccionar el último curso por defecto
+      if (cursosFiltrados.length > 0 && !cursoSeleccionado) {
+        setCursoSeleccionado(cursosFiltrados[cursosFiltrados.length - 1].id);
+      }
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al cargar cursos');
@@ -332,10 +336,10 @@ export default function Profesor() {
       return [
         idx + 1,
         est.nombreApellido,
-        asist?.clase1 ? '☑' : '☐',
-        asist?.clase2 ? '☑' : '☐',
-        asist?.clase3 ? '☑' : '☐',
-        asist?.clase4 ? '☑' : '☐'
+        asist?.clase1 ? '[X]' : '[ ]',
+        asist?.clase2 ? '[X]' : '[ ]',
+        asist?.clase3 ? '[X]' : '[ ]',
+        asist?.clase4 ? '[X]' : '[ ]'
       ];
     });
 
