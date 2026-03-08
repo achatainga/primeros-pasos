@@ -158,22 +158,20 @@ export default function Registro() {
             <div>
               <input
                 type="tel"
-                required
                 value={formData.telefono}
                 onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
                 className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent text-white placeholder-slate-400"
-                placeholder="Teléfono *"
+                placeholder="Teléfono (opcional)"
               />
             </div>
 
             <div>
               <input
                 type="email"
-                required
                 value={formData.correo}
                 onChange={(e) => setFormData({ ...formData, correo: e.target.value })}
                 className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent text-white placeholder-slate-400"
-                placeholder="Correo Electrónico *"
+                placeholder="Correo Electrónico (opcional)"
               />
             </div>
 

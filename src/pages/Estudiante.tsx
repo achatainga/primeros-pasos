@@ -31,7 +31,7 @@ interface Asistencia {
 }
 
 export default function Estudiante() {
-  const [correo, setCorreo] = useState('');
+  const [busqueda, setBusqueda] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
   const [estudiante, setEstudiante] = useState<Estudiante | null>(null);
   const [curso, setCurso] = useState<Curso | null>(null);
@@ -41,21 +41,32 @@ export default function Estudiante() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const emailParam = params.get('email');
-    if (emailParam) {
-      setCorreo(emailParam);
-      handleAutoLogin(emailParam);
+    const busquedaParam = params.get('email') || params.get('nombre');
+    if (busquedaParam) {
+      setBusqueda(busquedaParam);
+      handleAutoLogin(busquedaParam);
     }
   }, []);
 
-  const handleAutoLogin = async (email: string) => {
+  const handleAutoLogin = async (valor: string) => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'estudiantes'), where('correo', '==', email.toLowerCase().trim()));
-      const snapshot = await getDocs(q);
+      let snapshot;
+      
+      // Intentar primero por correo
+      if (valor.includes('@')) {
+        const qCorreo = query(collection(db, 'estudiantes'), where('correo', '==', valor.toLowerCase().trim()));
+        snapshot = await getDocs(qCorreo);
+      }
+      
+      // Si no encontró por correo o no es email, buscar por nombre
+      if (!snapshot || snapshot.empty) {
+        const qNombre = query(collection(db, 'estudiantes'), where('nombreApellido', '==', valor.trim()));
+        snapshot = await getDocs(qNombre);
+      }
       
       if (snapshot.empty) {
-        toast.error('Correo no encontrado');
+        toast.error('Estudiante no encontrado');
         return;
       }
 
@@ -100,7 +111,7 @@ export default function Estudiante() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    handleAutoLogin(correo);
+    handleAutoLogin(busqueda);
   };
 
   if (!authenticated) {
@@ -110,14 +121,14 @@ export default function Estudiante() {
           <div className="text-center mb-8">
             <User className="mx-auto mb-4 text-amber-500" size={48} />
             <h1 className="text-2xl font-bold text-white">Portal del Estudiante</h1>
-            <p className="text-slate-400 mt-2">Ingresa tu correo</p>
+            <p className="text-slate-400 mt-2">Ingresa tu correo o nombre completo</p>
           </div>
           <form onSubmit={handleLogin}>
             <input
-              type="email"
-              value={correo}
-              onChange={(e) => setCorreo(e.target.value)}
-              placeholder="tu@correo.com"
+              type="text"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Correo o Nombre y Apellido"
               required
               className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent mb-4"
             />
