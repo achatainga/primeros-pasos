@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, getDocs, deleteDoc, doc, addDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { supabase } from '../lib/supabase';
+import { UploadClient } from '@uploadcare/upload-client';
 import { toast } from 'react-toastify';
 import { Lock, Users, BookOpen, Trash2, Edit2, Save, X, Plus, Upload, Mail } from 'lucide-react';
 import emailjs from '@emailjs/browser';
@@ -132,21 +132,14 @@ export default function Admin() {
   const handleUploadMaterial = async (cursoId: string, file: File) => {
     setUploadingFile(true);
     try {
-      const fileName = `${cursoId}/${Date.now()}_${file.name}`;
-      const { data, error } = await supabase.storage
-        .from('materiales')
-        .upload(fileName, file, { cacheControl: '3600', upsert: false });
-      
-      if (error) throw error;
-      
-      const { data: { publicUrl } } = supabase.storage
-        .from('materiales')
-        .getPublicUrl(data.path);
+      const client = new UploadClient({ publicKey: import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY });
+      const result = await client.uploadFile(file);
+      const url = `https://ucarecdn.com/${result.uuid}/`;
       
       const curso = cursos.find(c => c.id === cursoId);
       if (curso) {
         await updateDoc(doc(db, 'cursos', cursoId), {
-          materiales: [...(curso.materiales || []), publicUrl]
+          materiales: [...(curso.materiales || []), url]
         });
         toast.success('Material subido');
         cargarDatos();
