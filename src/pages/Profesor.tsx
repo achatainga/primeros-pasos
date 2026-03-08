@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, doc, setDoc, addDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, setDoc, addDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
 import { toast } from 'react-toastify';
@@ -137,6 +137,26 @@ export default function Profesor() {
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al actualizar estado');
+    }
+  };
+
+  const handleDeleteCurso = async (cursoId: string, nombreCurso: string) => {
+    const num1 = Math.floor(Math.random() * 900) + 100;
+    const num2 = Math.floor(Math.random() * 900) + 100;
+    const resultado = num1 + num2;
+    const respuesta = prompt(`Para eliminar "${nombreCurso}", resuelve: ${num1} + ${num2} = ?`);
+    
+    if (respuesta === resultado.toString()) {
+      try {
+        await deleteDoc(doc(db, 'cursos', cursoId));
+        toast.success('Curso eliminado');
+        cargarCursos();
+      } catch (error) {
+        console.error('Error:', error);
+        toast.error('Error al eliminar curso');
+      }
+    } else if (respuesta !== null) {
+      toast.error('Respuesta incorrecta');
     }
   };
 
@@ -419,6 +439,13 @@ export default function Profesor() {
                         disabled={uploadingFile}
                       />
                     </label>
+                    <button
+                      onClick={() => handleDeleteCurso(curso.id, curso.nombre)}
+                      className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg"
+                      title="Eliminar curso"
+                    >
+                      🗑️
+                    </button>
                   </div>
                 </div>
                 {curso.materiales && curso.materiales.length > 0 && (

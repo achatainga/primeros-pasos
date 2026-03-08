@@ -165,6 +165,26 @@ export default function Admin() {
     }
   };
 
+  const handleDeleteCurso = async (cursoId: string, nombreCurso: string) => {
+    const num1 = Math.floor(Math.random() * 900) + 100;
+    const num2 = Math.floor(Math.random() * 900) + 100;
+    const resultado = num1 + num2;
+    const respuesta = prompt(`Para eliminar "${nombreCurso}", resuelve: ${num1} + ${num2} = ?`);
+    
+    if (respuesta === resultado.toString()) {
+      try {
+        await deleteDoc(doc(db, 'cursos', cursoId));
+        toast.success('Curso eliminado');
+        cargarDatos();
+      } catch (error) {
+        console.error('Error:', error);
+        toast.error('Error al eliminar curso');
+      }
+    } else if (respuesta !== null) {
+      toast.error('Respuesta incorrecta');
+    }
+  };
+
   const enviarEmailPrueba = async () => {
     try {
       await emailjs.send(
@@ -340,6 +360,13 @@ export default function Admin() {
                         disabled={uploadingFile}
                       />
                     </label>
+                    <button
+                      onClick={() => handleDeleteCurso(curso.id, curso.nombre)}
+                      className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg"
+                      title="Eliminar curso"
+                    >
+                      <Trash2 size={18} />
+                    </button>
                   </div>
                 </div>
                 {curso.materiales?.length > 0 && (

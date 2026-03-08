@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { toast } from 'react-toastify';
@@ -36,11 +36,19 @@ export default function Estudiante() {
   const [asistencia, setAsistencia] = useState<Asistencia | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const emailParam = params.get('email');
+    if (emailParam) {
+      setCorreo(emailParam);
+      handleAutoLogin(emailParam);
+    }
+  }, []);
+
+  const handleAutoLogin = async (email: string) => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'estudiantes'), where('correo', '==', correo.toLowerCase().trim()));
+      const q = query(collection(db, 'estudiantes'), where('correo', '==', email.toLowerCase().trim()));
       const snapshot = await getDocs(q);
       
       if (snapshot.empty) {
@@ -51,15 +59,12 @@ export default function Estudiante() {
       const estudianteData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Estudiante;
       setEstudiante(estudianteData);
       setAuthenticated(true);
-      toast.success('Acceso concedido');
       
-      // Cargar curso
       const cursoDoc = await getDocs(query(collection(db, 'cursos'), where('__name__', '==', estudianteData.cursoId)));
       if (!cursoDoc.empty) {
         setCurso({ id: cursoDoc.docs[0].id, ...cursoDoc.docs[0].data() } as Curso);
       }
 
-      // Cargar asistencia
       const asistenciaDoc = await getDocs(
         query(collection(db, 'asistencias'), 
           where('estudianteId', '==', estudianteData.id),
@@ -75,6 +80,11 @@ export default function Estudiante() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    handleAutoLogin(correo);
   };
 
   if (!authenticated) {
