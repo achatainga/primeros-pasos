@@ -644,6 +644,19 @@ export default function Profesor() {
                               onClick={async () => {
                                 if (confirm(`¿Eliminar ${material.name}?`)) {
                                   try {
+                                    const uuid = material.url.split('/')[3];
+                                    if (uuid) {
+                                      try {
+                                        await fetch(`https://api.uploadcare.com/files/${uuid}/`, {
+                                          method: 'DELETE',
+                                          headers: {
+                                            'Authorization': `Uploadcare.Simple ${import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY}:${import.meta.env.VITE_UPLOADCARE_SECRET_KEY || ''}`
+                                          }
+                                        });
+                                      } catch (e) {
+                                        console.log('Archivo ya no existe en Uploadcare');
+                                      }
+                                    }
                                     const nuevosMateriales = curso.materiales?.filter((_, i) => i !== idx) || [];
                                     await updateDoc(doc(db, 'cursos', curso.id), { materiales: nuevosMateriales });
                                     toast.success('Material eliminado');
