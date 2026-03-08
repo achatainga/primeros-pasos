@@ -644,7 +644,7 @@ export default function Profesor() {
                               onClick={async () => {
                                 if (confirm(`¿Eliminar ${material.name}?`)) {
                                   try {
-                                    const uuid = material.url.split('/')[3];
+                                    const uuid = material.url?.split('/')[3];
                                     if (uuid) {
                                       try {
                                         await fetch(`https://api.uploadcare.com/files/${uuid}/`, {

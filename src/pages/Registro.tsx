@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { toast } from 'react-toastify';
-import { BookOpen, Download } from 'lucide-react';
+import { BookOpen, Download, Smartphone } from 'lucide-react';
 
 interface Curso {
   id: string;
@@ -24,6 +24,16 @@ export default function Registro() {
   });
   const [loading, setLoading] = useState(false);
   const [cursos, setCursos] = useState<Curso[]>([]);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
 
   useEffect(() => {
     cargarCursos();
@@ -41,6 +51,19 @@ export default function Registro() {
     } catch (error) {
       console.error('Error al cargar cursos:', error);
     }
+  };
+
+  const handleInstallPWA = async () => {
+    if (!deferredPrompt) {
+      toast.info('La app ya está instalada o no está disponible para instalar');
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      toast.success('App instalada exitosamente');
+    }
+    setDeferredPrompt(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -78,6 +101,15 @@ export default function Registro() {
             <BookOpen className="mx-auto mb-4 text-amber-500" size={48} />
             <h1 className="text-4xl font-bold text-amber-500 mb-2">Primeros Pasos</h1>
             <p className="text-slate-400">Alcance Victoria - Registro de Estudiantes</p>
+            {deferredPrompt && (
+              <button
+                onClick={handleInstallPWA}
+                className="mt-4 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold py-2 px-4 rounded-lg flex items-center gap-2 mx-auto"
+              >
+                <Smartphone size={20} />
+                Instalar App
+              </button>
+            )}
           </div>
 
           {cursos.length > 0 && (
