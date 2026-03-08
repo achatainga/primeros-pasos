@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <rect width="200" height="200" fill="#1e40af" rx="20"/>
+  <text x="100" y="100" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">PP</text>
+  <text x="100" y="160" font-family="Arial, sans-serif" font-size="20" fill="#93c5fd" text-anchor="middle">Primeros Pasos</text>
+</svg>
