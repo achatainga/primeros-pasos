@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { collection, getDocs, deleteDoc, doc, addDoc, updateDoc, Timestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../lib/firebase';
+import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { toast } from 'react-toastify';
 import { Lock, Users, BookOpen, Trash2, Edit2, Save, X, Plus, Upload, Mail } from 'lucide-react';
 import emailjs from '@emailjs/browser';
@@ -132,14 +132,21 @@ export default function Admin() {
   const handleUploadMaterial = async (cursoId: string, file: File) => {
     setUploadingFile(true);
     try {
-      const storageRef = ref(storage, `materiales/${cursoId}/${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
+      const fileName = `${cursoId}/${Date.now()}_${file.name}`;
+      const { data, error } = await supabase.storage
+        .from('materiales')
+        .upload(fileName, file, { cacheControl: '3600', upsert: false });
+      
+      if (error) throw error;
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('materiales')
+        .getPublicUrl(data.path);
       
       const curso = cursos.find(c => c.id === cursoId);
       if (curso) {
         await updateDoc(doc(db, 'cursos', cursoId), {
-          materiales: [...(curso.materiales || []), url]
+          materiales: [...(curso.materiales || []), publicUrl]
         });
         toast.success('Material subido');
         cargarDatos();
