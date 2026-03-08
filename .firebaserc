@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "primeros-pasos-av"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }

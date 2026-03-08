@@ -17,6 +17,8 @@ interface Curso {
   fechaInicio: string;
   hora: string;
   materiales: string[];
+  profesorId?: string;
+  profesorNombre?: string;
 }
 
 interface Asistencia {
@@ -35,6 +37,7 @@ export default function Estudiante() {
   const [curso, setCurso] = useState<Curso | null>(null);
   const [asistencia, setAsistencia] = useState<Asistencia | null>(null);
   const [loading, setLoading] = useState(false);
+  const [contactoProfesor, setContactoProfesor] = useState<any>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -73,6 +76,19 @@ export default function Estudiante() {
       );
       if (!asistenciaDoc.empty) {
         setAsistencia(asistenciaDoc.docs[0].data() as Asistencia);
+      }
+
+      // Cargar contacto del profesor asignado al curso
+      if (!cursoDoc.empty) {
+        const cursoData = cursoDoc.docs[0].data();
+        if (cursoData.profesorId) {
+          const profesorDoc = await getDocs(
+            query(collection(db, 'contactoProfesor'), where('__name__', '==', cursoData.profesorId))
+          );
+          if (!profesorDoc.empty) {
+            setContactoProfesor(profesorDoc.docs[0].data());
+          }
+        }
       }
     } catch (error) {
       console.error('Error:', error);
@@ -146,6 +162,9 @@ export default function Estudiante() {
               <h3 className="text-2xl font-bold mb-3">{curso.nombre}</h3>
               <p className="text-lg"><strong>📅 Fecha:</strong> {curso.fechaInicio}</p>
               <p className="text-lg"><strong>🕐 Hora:</strong> {curso.hora}</p>
+              {curso.profesorNombre && (
+                <p className="text-lg mt-2"><strong>👨‍🏫 Profesor:</strong> {curso.profesorNombre}</p>
+              )}
             </div>
           </div>
         )}
@@ -178,21 +197,35 @@ export default function Estudiante() {
         )}
 
         {curso?.materiales && curso.materiales.length > 0 && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg p-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg p-6 mb-6">
             <h2 className="text-2xl font-bold text-white mb-4">Materiales del Curso</h2>
             <div className="space-y-3">
-              {curso.materiales.map((url, idx) => (
-                <a
-                  key={idx}
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
-                >
-                  <Download className="text-amber-500" size={20} />
-                  <span className="text-white">Material {idx + 1}</span>
-                </a>
-              ))}
+              {curso.materiales.map((url, idx) => {
+                const fileName = url.split('/').pop() || `Material ${idx + 1}`;
+                return (
+                  <a
+                    key={idx}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+                  >
+                    <Download className="text-amber-500" size={20} />
+                    <span className="text-white">{fileName}</span>
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {contactoProfesor && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg p-6">
+            <h2 className="text-2xl font-bold text-white mb-4">Contacto del Profesor</h2>
+            <div className="bg-slate-800 p-4 rounded-lg space-y-2">
+              <p className="text-white"><strong className="text-amber-500">Nombre:</strong> {contactoProfesor.nombre}</p>
+              <p className="text-white"><strong className="text-amber-500">Teléfono:</strong> {contactoProfesor.telefono}</p>
+              <p className="text-white"><strong className="text-amber-500">Email:</strong> {contactoProfesor.email}</p>
             </div>
           </div>
         )}

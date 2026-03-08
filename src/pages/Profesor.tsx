@@ -22,6 +22,15 @@ interface Curso {
   hora: string;
   estado: string;
   materiales?: string[];
+  profesorId?: string;
+  profesorNombre?: string;
+}
+
+interface EditingCurso {
+  id: string;
+  nombre: string;
+  fechaInicio: string;
+  hora: string;
 }
 
 interface Asistencia {
@@ -51,12 +60,21 @@ export default function Profesor() {
     estado: 'abierto' as 'abierto' | 'cerrado'
   });
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [editingCurso, setEditingCurso] = useState<EditingCurso | null>(null);
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [contactoProfesor, setContactoProfesor] = useState({
+    nombre: '',
+    telefono: '',
+    email: ''
+  });
+  const [profesorId, setProfesorId] = useState('');
 
   const PROFESOR_PASSWORD = 'PrimerosPasosMaestro';
 
   useEffect(() => {
     if (authenticated) {
       cargarCursos();
+      cargarContactoProfesor();
     }
   }, [authenticated]);
 
@@ -66,11 +84,16 @@ export default function Profesor() {
     }
   }, [cursoSeleccionado]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password === PROFESOR_PASSWORD) {
       setAuthenticated(true);
       toast.success('Acceso concedido');
+      // Cargar o crear ID del profesor
+      const snapshot = await getDocs(collection(db, 'contactoProfesor'));
+      if (!snapshot.empty) {
+        setProfesorId(snapshot.docs[0].id);
+      }
     } else {
       toast.error('Contraseña incorrecta');
     }
@@ -79,19 +102,65 @@ export default function Profesor() {
   const cargarCursos = async () => {
     try {
       const snapshot = await getDocs(collection(db, 'cursos'));
-      setCursos(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Curso[]);
+      const todosCursos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Curso[];
+      // Filtrar solo cursos del profesor actual
+      const cursosFiltrados = todosCursos.filter(c => !c.profesorId || c.profesorId === profesorId);
+      setCursos(cursosFiltrados);
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al cargar cursos');
     }
   };
 
+  const cargarContactoProfesor = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, 'contactoProfesor'));
+      if (!snapshot.empty) {
+        const data = snapshot.docs[0].data();
+        setContactoProfesor({
+          nombre: data.nombre || '',
+          telefono: data.telefono || '',
+          email: data.email || ''
+        });
+        setProfesorId(snapshot.docs[0].id);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const guardarContactoProfesor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const snapshot = await getDocs(collection(db, 'contactoProfesor'));
+      if (snapshot.empty) {
+        const docRef = await addDoc(collection(db, 'contactoProfesor'), contactoProfesor);
+        setProfesorId(docRef.id);
+      } else {
+        await updateDoc(doc(db, 'contactoProfesor', snapshot.docs[0].id), contactoProfesor);
+        setProfesorId(snapshot.docs[0].id);
+      }
+      toast.success('Contacto guardado');
+      setShowContactForm(false);
+      cargarCursos(); // Recargar cursos con el nuevo profesorId
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al guardar contacto');
+    }
+  };
+
   const handleCreateCurso = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!profesorId) {
+      toast.error('Debes guardar tu contacto primero');
+      return;
+    }
     try {
       await addDoc(collection(db, 'cursos'), {
         ...cursoForm,
         materiales: [],
+        profesorId,
+        profesorNombre: contactoProfesor.nombre,
         fechaCreacion: Timestamp.now()
       });
       toast.success('Curso creado');
@@ -109,7 +178,7 @@ export default function Profesor() {
     try {
       const client = new UploadClient({ publicKey: import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY });
       const result = await client.uploadFile(file);
-      const url = `https://ucarecdn.com/${result.uuid}/`;
+      const url = `https://ucarecdn.com/${result.uuid}/${file.name}`;
       
       const curso = cursos.find(c => c.id === cursoId);
       if (curso) {
@@ -157,6 +226,23 @@ export default function Profesor() {
       }
     } else if (respuesta !== null) {
       toast.error('Respuesta incorrecta');
+    }
+  };
+
+  const handleEditCurso = async () => {
+    if (!editingCurso) return;
+    try {
+      await updateDoc(doc(db, 'cursos', editingCurso.id), {
+        nombre: editingCurso.nombre,
+        fechaInicio: editingCurso.fechaInicio,
+        hora: editingCurso.hora
+      });
+      toast.success('Curso actualizado');
+      setEditingCurso(null);
+      cargarCursos();
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al actualizar curso');
     }
   };
 
@@ -335,10 +421,62 @@ export default function Profesor() {
               <h1 className="text-3xl font-bold text-gray-900">Panel de Profesor</h1>
               <p className="text-gray-600 mt-1">Primeros Pasos</p>
             </div>
-            <a href="/" className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg">
-              Volver al Registro
-            </a>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowContactForm(!showContactForm)}
+                className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg"
+              >
+                {contactoProfesor.nombre ? 'Editar Contacto' : 'Agregar Contacto'}
+              </button>
+              <a href="/" className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg">
+                Volver al Registro
+              </a>
+            </div>
           </div>
+
+          {showContactForm && (
+            <form onSubmit={guardarContactoProfesor} className="mt-4 bg-gray-100 p-4 rounded-lg">
+              <h3 className="font-bold text-gray-900 mb-3">Información de Contacto</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input
+                  type="text"
+                  required
+                  value={contactoProfesor.nombre}
+                  onChange={(e) => setContactoProfesor({...contactoProfesor, nombre: e.target.value})}
+                  placeholder="Nombre completo"
+                  className="px-4 py-2 border border-gray-300 rounded-lg"
+                />
+                <input
+                  type="tel"
+                  required
+                  value={contactoProfesor.telefono}
+                  onChange={(e) => setContactoProfesor({...contactoProfesor, telefono: e.target.value})}
+                  placeholder="Teléfono"
+                  className="px-4 py-2 border border-gray-300 rounded-lg"
+                />
+                <input
+                  type="email"
+                  required
+                  value={contactoProfesor.email}
+                  onChange={(e) => setContactoProfesor({...contactoProfesor, email: e.target.value})}
+                  placeholder="Email"
+                  className="px-4 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button type="submit" className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg">
+                  Guardar Contacto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowContactForm(false)}
+                  className="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded-lg"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
@@ -408,50 +546,116 @@ export default function Profesor() {
           <div className="grid gap-4 mb-6">
             {cursos.map(curso => (
               <div key={curso.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-bold text-lg text-gray-900">{curso.nombre}</h3>
-                    <p className="text-sm text-gray-600">Inicio: {curso.fechaInicio} - {curso.hora}</p>
-                    <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 ${
-                      curso.estado === 'abierto' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {curso.estado === 'abierto' ? 'Abierto' : 'Cerrado'}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => toggleEstadoCurso(curso.id, curso.estado)}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-white p-2 rounded-lg text-sm"
-                      title="Cambiar estado"
-                    >
-                      {curso.estado === 'abierto' ? 'Cerrar' : 'Abrir'}
-                    </button>
-                    <label className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg cursor-pointer">
-                      <Upload size={18} />
+                {editingCurso?.id === curso.id ? (
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={editingCurso.nombre}
+                      onChange={(e) => setEditingCurso({...editingCurso, nombre: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="Nombre del curso"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
                       <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleUploadMaterial(curso.id, file);
-                        }}
-                        disabled={uploadingFile}
+                        type="date"
+                        value={editingCurso.fechaInicio}
+                        onChange={(e) => setEditingCurso({...editingCurso, fechaInicio: e.target.value})}
+                        className="px-3 py-2 border border-gray-300 rounded-lg"
                       />
-                    </label>
-                    <button
-                      onClick={() => handleDeleteCurso(curso.id, curso.nombre)}
-                      className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg"
-                      title="Eliminar curso"
-                    >
-                      🗑️
-                    </button>
+                      <input
+                        type="time"
+                        value={editingCurso.hora}
+                        onChange={(e) => setEditingCurso({...editingCurso, hora: e.target.value})}
+                        className="px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={handleEditCurso} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
+                        Guardar
+                      </button>
+                      <button onClick={() => setEditingCurso(null)} className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-lg">
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
-                </div>
-                {curso.materiales && curso.materiales.length > 0 && (
-                  <div className="mt-2">
-                    <p className="text-sm font-semibold text-gray-700">Materiales: {curso.materiales.length}</p>
-                  </div>
+                ) : (
+                  <>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h3 className="font-bold text-lg text-gray-900">{curso.nombre}</h3>
+                        <p className="text-sm text-gray-600">Inicio: {curso.fechaInicio} - {curso.hora}</p>
+                        <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 ${
+                          curso.estado === 'abierto' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {curso.estado === 'abierto' ? 'Abierto' : 'Cerrado'}
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingCurso({id: curso.id, nombre: curso.nombre, fechaInicio: curso.fechaInicio, hora: curso.hora})}
+                          className="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-lg"
+                          title="Editar curso"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => toggleEstadoCurso(curso.id, curso.estado)}
+                          className="bg-yellow-500 hover:bg-yellow-600 text-white p-2 rounded-lg text-sm"
+                          title="Cambiar estado"
+                        >
+                          {curso.estado === 'abierto' ? 'Cerrar' : 'Abrir'}
+                        </button>
+                        <label className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg cursor-pointer">
+                          <Upload size={18} />
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleUploadMaterial(curso.id, file);
+                            }}
+                            disabled={uploadingFile}
+                          />
+                        </label>
+                        <button
+                          onClick={() => handleDeleteCurso(curso.id, curso.nombre)}
+                          className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg"
+                          title="Eliminar curso"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                    {curso.materiales && curso.materiales.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        <p className="text-sm font-semibold text-gray-700">Materiales ({curso.materiales.length}):</p>
+                        {curso.materiales.map((url, idx) => {
+                          const fileName = url.split('/').pop() || `Material ${idx + 1}`;
+                          return (
+                            <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-gray-200">
+                              <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline truncate flex-1">
+                                {fileName}
+                              </a>
+                              <button
+                                onClick={async () => {
+                                  if (confirm(`¿Eliminar ${fileName}?`)) {
+                                    const nuevosMateriales = curso.materiales?.filter((_, i) => i !== idx) || [];
+                                    await updateDoc(doc(db, 'cursos', curso.id), { materiales: nuevosMateriales });
+                                    toast.success('Material eliminado');
+                                    cargarCursos();
+                                  }
+                                }}
+                                className="text-red-500 hover:text-red-700 ml-2"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ))}

@@ -24,6 +24,22 @@ interface Curso {
   hora: string;
   estado: 'abierto' | 'cerrado';
   materiales: string[];
+  profesorId?: string;
+  profesorNombre?: string;
+}
+
+interface EditingCurso {
+  id: string;
+  nombre: string;
+  fechaInicio: string;
+  hora: string;
+}
+
+interface Profesor {
+  id: string;
+  nombre: string;
+  telefono: string;
+  email: string;
 }
 
 export default function Admin() {
@@ -42,6 +58,9 @@ export default function Admin() {
     estado: 'abierto' as 'abierto' | 'cerrado'
   });
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [editingCurso, setEditingCurso] = useState<EditingCurso | null>(null);
+  const [profesores, setProfesores] = useState<Profesor[]>([]);
+  const [profesorSeleccionado, setProfesorSeleccionado] = useState('');
 
   const ADMIN_PASSWORD = 'PrimerosPasos2026';
 
@@ -64,13 +83,15 @@ export default function Admin() {
   const cargarDatos = async () => {
     setLoading(true);
     try {
-      const [estudiantesSnap, cursosSnap] = await Promise.all([
+      const [estudiantesSnap, cursosSnap, profesoresSnap] = await Promise.all([
         getDocs(collection(db, 'estudiantes')),
-        getDocs(collection(db, 'cursos'))
+        getDocs(collection(db, 'cursos')),
+        getDocs(collection(db, 'contactoProfesor'))
       ]);
       
       setEstudiantes(estudiantesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[]);
       setCursos(cursosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Curso[]);
+      setProfesores(profesoresSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Profesor[]);
     } catch (error) {
       console.error('Error al cargar datos:', error);
       toast.error('Error al cargar datos');
@@ -113,15 +134,23 @@ export default function Admin() {
 
   const handleCreateCurso = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!profesorSeleccionado) {
+      toast.error('Selecciona un profesor');
+      return;
+    }
+    const profesor = profesores.find(p => p.id === profesorSeleccionado);
     try {
       await addDoc(collection(db, 'cursos'), {
         ...cursoForm,
         materiales: [],
+        profesorId: profesorSeleccionado,
+        profesorNombre: profesor?.nombre || '',
         fechaCreacion: Timestamp.now()
       });
       toast.success('Curso creado');
       setShowCursoForm(false);
       setCursoForm({ nombre: '', fechaInicio: '', hora: '', estado: 'abierto' });
+      setProfesorSeleccionado('');
       cargarDatos();
     } catch (error) {
       console.error('Error:', error);
@@ -134,7 +163,7 @@ export default function Admin() {
     try {
       const client = new UploadClient({ publicKey: import.meta.env.VITE_UPLOADCARE_PUBLIC_KEY });
       const result = await client.uploadFile(file);
-      const url = `https://ucarecdn.com/${result.uuid}/`;
+      const url = `https://ucarecdn.com/${result.uuid}/${file.name}`;
       
       const curso = cursos.find(c => c.id === cursoId);
       if (curso) {
@@ -182,6 +211,23 @@ export default function Admin() {
       }
     } else if (respuesta !== null) {
       toast.error('Respuesta incorrecta');
+    }
+  };
+
+  const handleEditCurso = async () => {
+    if (!editingCurso) return;
+    try {
+      await updateDoc(doc(db, 'cursos', editingCurso.id), {
+        nombre: editingCurso.nombre,
+        fechaInicio: editingCurso.fechaInicio,
+        hora: editingCurso.hora
+      });
+      toast.success('Curso actualizado');
+      setEditingCurso(null);
+      cargarDatos();
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al actualizar curso');
     }
   };
 
@@ -311,6 +357,17 @@ export default function Admin() {
                   <option value="abierto">Abierto</option>
                   <option value="cerrado">Cerrado</option>
                 </select>
+                <select
+                  required
+                  value={profesorSeleccionado}
+                  onChange={(e) => setProfesorSeleccionado(e.target.value)}
+                  className="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white md:col-span-2"
+                >
+                  <option value="">Seleccionar Profesor</option>
+                  {profesores.map(prof => (
+                    <option key={prof.id} value={prof.id}>{prof.nombre}</option>
+                  ))}
+                </select>
               </div>
               <div className="flex gap-2 mt-4">
                 <button type="submit" className="bg-amber-500 hover:bg-amber-600 text-slate-900 py-2 px-4 rounded-lg">
@@ -330,49 +387,118 @@ export default function Admin() {
           <div className="grid gap-4">
             {cursos.map(curso => (
               <div key={curso.id} className="border border-slate-700 rounded-lg p-4 bg-slate-800">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-bold text-lg text-white">{curso.nombre}</h3>
-                    <p className="text-sm text-slate-400">Inicio: {curso.fechaInicio} - {curso.hora}</p>
-                    <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 ${
-                      curso.estado === 'abierto' ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'
-                    }`}>
-                      {curso.estado === 'abierto' ? 'Abierto' : 'Cerrado'}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => toggleEstadoCurso(curso.id, curso.estado)}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-slate-900 p-2 rounded-lg"
-                      title="Cambiar estado"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <label className="bg-amber-500 hover:bg-amber-600 text-slate-900 p-2 rounded-lg cursor-pointer">
-                      <Upload size={18} />
+                {editingCurso?.id === curso.id ? (
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={editingCurso.nombre}
+                      onChange={(e) => setEditingCurso({...editingCurso, nombre: e.target.value})}
+                      className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                      placeholder="Nombre del curso"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
                       <input
-                        type="file"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleUploadMaterial(curso.id, file);
-                        }}
-                        disabled={uploadingFile}
+                        type="date"
+                        value={editingCurso.fechaInicio}
+                        onChange={(e) => setEditingCurso({...editingCurso, fechaInicio: e.target.value})}
+                        className="px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
                       />
-                    </label>
-                    <button
-                      onClick={() => handleDeleteCurso(curso.id, curso.nombre)}
-                      className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg"
-                      title="Eliminar curso"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                      <input
+                        type="time"
+                        value={editingCurso.hora}
+                        onChange={(e) => setEditingCurso({...editingCurso, hora: e.target.value})}
+                        className="px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={handleEditCurso} className="bg-amber-500 hover:bg-amber-600 text-slate-900 px-4 py-2 rounded-lg">
+                        Guardar
+                      </button>
+                      <button onClick={() => setEditingCurso(null)} className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg">
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
-                </div>
-                {curso.materiales?.length > 0 && (
-                  <div className="mt-2">
-                    <p className="text-sm font-semibold text-slate-300">Materiales: {curso.materiales.length}</p>
-                  </div>
+                ) : (
+                  <>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h3 className="font-bold text-lg text-white">{curso.nombre}</h3>
+                        <p className="text-sm text-slate-400">Inicio: {curso.fechaInicio} - {curso.hora}</p>
+                        {curso.profesorNombre && (
+                          <p className="text-sm text-amber-400 mt-1">Profesor: {curso.profesorNombre}</p>
+                        )}
+                        <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full mt-2 ${
+                          curso.estado === 'abierto' ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                        }`}>
+                          {curso.estado === 'abierto' ? 'Abierto' : 'Cerrado'}
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingCurso({id: curso.id, nombre: curso.nombre, fechaInicio: curso.fechaInicio, hora: curso.hora})}
+                          className="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-lg"
+                          title="Editar curso"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => toggleEstadoCurso(curso.id, curso.estado)}
+                          className="bg-yellow-500 hover:bg-yellow-600 text-slate-900 p-2 rounded-lg"
+                          title="Cambiar estado"
+                        >
+                          {curso.estado === 'abierto' ? 'Cerrar' : 'Abrir'}
+                        </button>
+                        <label className="bg-amber-500 hover:bg-amber-600 text-slate-900 p-2 rounded-lg cursor-pointer">
+                          <Upload size={18} />
+                          <input
+                            type="file"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleUploadMaterial(curso.id, file);
+                            }}
+                            disabled={uploadingFile}
+                          />
+                        </label>
+                        <button
+                          onClick={() => handleDeleteCurso(curso.id, curso.nombre)}
+                          className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg"
+                          title="Eliminar curso"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+                    {curso.materiales?.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        <p className="text-sm font-semibold text-slate-300">Materiales ({curso.materiales.length}):</p>
+                        {curso.materiales.map((url, idx) => {
+                          const fileName = url.split('/').pop() || `Material ${idx + 1}`;
+                          return (
+                            <div key={idx} className="flex items-center justify-between bg-slate-700 p-2 rounded border border-slate-600">
+                              <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-amber-400 hover:underline truncate flex-1">
+                                {fileName}
+                              </a>
+                              <button
+                                onClick={async () => {
+                                  if (confirm(`¿Eliminar ${fileName}?`)) {
+                                    const nuevosMateriales = curso.materiales?.filter((_, i) => i !== idx) || [];
+                                    await updateDoc(doc(db, 'cursos', curso.id), { materiales: nuevosMateriales });
+                                    toast.success('Material eliminado');
+                                    cargarDatos();
+                                  }
+                                }}
+                                className="text-red-400 hover:text-red-300 ml-2"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ))}
