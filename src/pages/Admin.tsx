@@ -68,6 +68,9 @@ export default function Admin() {
   const [editingProfesor, setEditingProfesor] = useState<string | null>(null);
   const [cursoDefaultId, setCursoDefaultId] = useState('');
   const [configId, setConfigId] = useState('');
+  const [showReasignarModal, setShowReasignarModal] = useState(false);
+  const [estudianteReasignar, setEstudianteReasignar] = useState<Estudiante | null>(null);
+  const [cursoDestinoId, setCursoDestinoId] = useState('');
 
   const ADMIN_PASSWORD = 'PrimerosPasos2026';
 
@@ -324,6 +327,35 @@ export default function Admin() {
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al guardar configuración');
+    }
+  };
+
+  const handleReasignarEstudiante = async () => {
+    if (!estudianteReasignar || !cursoDestinoId) {
+      toast.error('Selecciona un curso destino');
+      return;
+    }
+    
+    try {
+      // Crear nuevo registro de estudiante con el nuevo curso
+      await addDoc(collection(db, 'estudiantes'), {
+        nombreApellido: estudianteReasignar.nombreApellido,
+        telefono: estudianteReasignar.telefono,
+        correo: estudianteReasignar.correo,
+        fechaNacimiento: estudianteReasignar.fechaNacimiento,
+        tiempoMinisterio: estudianteReasignar.tiempoMinisterio,
+        cursoId: cursoDestinoId,
+        fechaRegistro: Timestamp.now()
+      });
+      
+      toast.success(`${estudianteReasignar.nombreApellido} asignado al nuevo curso`);
+      setShowReasignarModal(false);
+      setEstudianteReasignar(null);
+      setCursoDestinoId('');
+      cargarDatos();
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al reasignar estudiante');
     }
   };
 
@@ -796,19 +828,29 @@ export default function Admin() {
                         <div className="flex gap-2">
                           {editingId === est.id ? (
                             <>
-                              <button onClick={saveEdit} className="text-green-400 hover:text-green-300">
+                              <button onClick={saveEdit} className="text-green-400 hover:text-green-300" title="Guardar">
                                 <Save size={18} />
                               </button>
-                              <button onClick={() => {setEditingId(null); setEditData({});}} className="text-slate-400 hover:text-slate-300">
+                              <button onClick={() => {setEditingId(null); setEditData({});}} className="text-slate-400 hover:text-slate-300" title="Cancelar">
                                 <X size={18} />
                               </button>
                             </>
                           ) : (
                             <>
-                              <button onClick={() => startEdit(est)} className="text-amber-400 hover:text-amber-300">
+                              <button onClick={() => startEdit(est)} className="text-amber-400 hover:text-amber-300" title="Editar">
                                 <Edit2 size={18} />
                               </button>
-                              <button onClick={() => handleDeleteEstudiante(est.id, est.nombreApellido)} className="text-red-400 hover:text-red-300">
+                              <button 
+                                onClick={() => {
+                                  setEstudianteReasignar(est);
+                                  setShowReasignarModal(true);
+                                }} 
+                                className="text-blue-400 hover:text-blue-300"
+                                title="Reasignar a otro curso"
+                              >
+                                <BookOpen size={18} />
+                              </button>
+                              <button onClick={() => handleDeleteEstudiante(est.id, est.nombreApellido)} className="text-red-400 hover:text-red-300" title="Eliminar">
                                 <Trash2 size={18} />
                               </button>
                             </>
@@ -823,6 +865,50 @@ export default function Admin() {
           )}
         </div>
       </div>
+
+      {showReasignarModal && estudianteReasignar && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 max-w-md w-full">
+            <h3 className="text-xl font-bold text-white mb-4">Reasignar Estudiante</h3>
+            <div className="mb-4">
+              <p className="text-slate-300 mb-2"><strong>Estudiante:</strong> {estudianteReasignar.nombreApellido}</p>
+              <p className="text-slate-400 text-sm mb-4">Curso actual: {cursos.find(c => c.id === estudianteReasignar.cursoId)?.nombre || 'N/A'}</p>
+              
+              <label className="block text-sm font-semibold text-slate-300 mb-2">Seleccionar Curso Destino</label>
+              <select
+                value={cursoDestinoId}
+                onChange={(e) => setCursoDestinoId(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+              >
+                <option value="">-- Seleccionar Curso --</option>
+                {cursos.filter(c => c.id !== estudianteReasignar.cursoId).map(curso => (
+                  <option key={curso.id} value={curso.id}>{curso.nombre}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-2">Se creará un nuevo registro con asistencia y notas en blanco</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleReasignarEstudiante}
+                disabled={!cursoDestinoId}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Reasignar
+              </button>
+              <button
+                onClick={() => {
+                  setShowReasignarModal(false);
+                  setEstudianteReasignar(null);
+                  setCursoDestinoId('');
+                }}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-4 rounded-lg"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
