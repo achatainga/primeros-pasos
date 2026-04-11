@@ -71,6 +71,8 @@ export default function Admin() {
   const [showReasignarModal, setShowReasignarModal] = useState(false);
   const [estudianteReasignar, setEstudianteReasignar] = useState<Estudiante | null>(null);
   const [cursoDestinoId, setCursoDestinoId] = useState('');
+  const [seleccionMultiple, setSeleccionMultiple] = useState<string[]>([]);
+  const [modoSeleccion, setModoSeleccion] = useState(false);
 
   const ADMIN_PASSWORD = 'PrimerosPasos2026';
 
@@ -357,6 +359,68 @@ export default function Admin() {
       console.error('Error:', error);
       toast.error('Error al reasignar estudiante');
     }
+  };
+
+  const toggleSeleccion = (estudianteId: string) => {
+    setSeleccionMultiple(prev => 
+      prev.includes(estudianteId) 
+        ? prev.filter(id => id !== estudianteId)
+        : [...prev, estudianteId]
+    );
+  };
+
+  const seleccionarTodos = () => {
+    if (seleccionMultiple.length === estudiantes.length) {
+      setSeleccionMultiple([]);
+    } else {
+      setSeleccionMultiple(estudiantes.map(e => e.id));
+    }
+  };
+
+  const handleReasignarMultiple = async () => {
+    if (seleccionMultiple.length === 0) {
+      toast.error('Selecciona al menos un estudiante');
+      return;
+    }
+    if (!cursoDestinoId) {
+      toast.error('Selecciona un curso destino');
+      return;
+    }
+
+    try {
+      const estudiantesSeleccionados = estudiantes.filter(e => seleccionMultiple.includes(e.id));
+      
+      for (const est of estudiantesSeleccionados) {
+        await addDoc(collection(db, 'estudiantes'), {
+          nombreApellido: est.nombreApellido,
+          telefono: est.telefono,
+          correo: est.correo,
+          fechaNacimiento: est.fechaNacimiento,
+          tiempoMinisterio: est.tiempoMinisterio,
+          cursoId: cursoDestinoId,
+          fechaRegistro: Timestamp.now()
+        });
+      }
+      
+      toast.success(`${seleccionMultiple.length} estudiante(s) reasignado(s)`);
+      setShowReasignarModal(false);
+      setSeleccionMultiple([]);
+      setModoSeleccion(false);
+      setCursoDestinoId('');
+      cargarDatos();
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al reasignar estudiantes');
+    }
+  };
+
+  const getCursosEstudiante = (estudianteNombre: string, estudianteCorreo: string) => {
+    return estudiantes
+      .filter(e => e.nombreApellido === estudianteNombre && e.correo === estudianteCorreo)
+      .map(e => {
+        const curso = cursos.find(c => c.id === e.cursoId);
+        return curso ? curso.nombre.substring(0, 15) : 'N/A';
+      });
   };
 
   if (!authenticated) {
@@ -767,10 +831,51 @@ export default function Admin() {
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg p-6">
-          <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
-            <Users size={24} className="text-amber-500" />
-            Estudiantes ({estudiantes.length})
-          </h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              <Users size={24} className="text-amber-500" />
+              Estudiantes ({estudiantes.length})
+            </h2>
+            <div className="flex gap-2">
+              {modoSeleccion && (
+                <>
+                  <button
+                    onClick={seleccionarTodos}
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg"
+                  >
+                    {seleccionMultiple.length === estudiantes.length ? 'Deseleccionar Todos' : 'Seleccionar Todos'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (seleccionMultiple.length > 0) {
+                        setShowReasignarModal(true);
+                      } else {
+                        toast.error('Selecciona al menos un estudiante');
+                      }
+                    }}
+                    disabled={seleccionMultiple.length === 0}
+                    className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold py-2 px-4 rounded-lg disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <BookOpen size={20} />
+                    Reasignar ({seleccionMultiple.length})
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => {
+                  setModoSeleccion(!modoSeleccion);
+                  setSeleccionMultiple([]);
+                }}
+                className={`font-semibold py-2 px-4 rounded-lg flex items-center gap-2 ${
+                  modoSeleccion 
+                    ? 'bg-red-500 hover:bg-red-600 text-white' 
+                    : 'bg-green-500 hover:bg-green-600 text-white'
+                }`}
+              >
+                {modoSeleccion ? 'Cancelar Selección' : 'Selección Múltiple'}
+              </button>
+            </div>
+          </div>
 
           {loading ? (
             <p className="text-center py-12 text-slate-400">Cargando...</p>
@@ -781,18 +886,45 @@ export default function Admin() {
               <table className="w-full">
                 <thead className="bg-slate-800/50 border-b border-slate-700">
                   <tr>
+                    {modoSeleccion && (
+                      <th className="px-4 py-3 text-center text-sm font-semibold text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={seleccionMultiple.length === estudiantes.length && estudiantes.length > 0}
+                          onChange={seleccionarTodos}
+                          className="w-4 h-4 cursor-pointer"
+                        />
+                      </th>
+                    )}
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">#</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Nombre</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Teléfono</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Correo</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Tiempo Ministerio</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Acciones</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Cursos</th>
+                    {!modoSeleccion && (
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-300">Acciones</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {estudiantes.map((est, idx) => (
-                    <tr key={est.id} className="hover:bg-slate-800/30">
-                      <td className="px-4 py-3 text-sm text-slate-400">{idx + 1}</td>
+                  {estudiantes.map((est, idx) => {
+                    const cursosEst = getCursosEstudiante(est.nombreApellido, est.correo);
+                    return (
+                      <tr key={est.id} className={`hover:bg-slate-800/30 ${
+                        seleccionMultiple.includes(est.id) ? 'bg-blue-500/10' : ''
+                      }`}>
+                        {modoSeleccion && (
+                          <td className="px-4 py-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={seleccionMultiple.includes(est.id)}
+                              onChange={() => toggleSeleccion(est.id)}
+                              className="w-4 h-4 cursor-pointer"
+                            />
+                          </td>
+                        )}
+                        <td className="px-4 py-3 text-sm text-slate-400">{idx + 1}</td>
                       <td className="px-4 py-3 text-sm text-white">
                         {editingId === est.id ? (
                           <input
@@ -824,41 +956,52 @@ export default function Admin() {
                         ) : est.correo}
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-400">{est.tiempoMinisterio}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          {editingId === est.id ? (
-                            <>
-                              <button onClick={saveEdit} className="text-green-400 hover:text-green-300" title="Guardar">
-                                <Save size={18} />
-                              </button>
-                              <button onClick={() => {setEditingId(null); setEditData({});}} className="text-slate-400 hover:text-slate-300" title="Cancelar">
-                                <X size={18} />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button onClick={() => startEdit(est)} className="text-amber-400 hover:text-amber-300" title="Editar">
-                                <Edit2 size={18} />
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  setEstudianteReasignar(est);
-                                  setShowReasignarModal(true);
-                                }} 
-                                className="text-blue-400 hover:text-blue-300"
-                                title="Reasignar a otro curso"
-                              >
-                                <BookOpen size={18} />
-                              </button>
-                              <button onClick={() => handleDeleteEstudiante(est.id, est.nombreApellido)} className="text-red-400 hover:text-red-300" title="Eliminar">
-                                <Trash2 size={18} />
-                              </button>
-                            </>
-                          )}
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex flex-wrap gap-1">
+                          {cursosEst.map((curso, i) => (
+                            <span key={i} className="inline-block px-2 py-1 text-xs bg-amber-500/20 text-amber-300 rounded border border-amber-500/30">
+                              {curso}
+                            </span>
+                          ))}
                         </div>
                       </td>
+                      {!modoSeleccion && (
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            {editingId === est.id ? (
+                              <>
+                                <button onClick={saveEdit} className="text-green-400 hover:text-green-300" title="Guardar">
+                                  <Save size={18} />
+                                </button>
+                                <button onClick={() => {setEditingId(null); setEditData({});}} className="text-slate-400 hover:text-slate-300" title="Cancelar">
+                                  <X size={18} />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button onClick={() => startEdit(est)} className="text-amber-400 hover:text-amber-300" title="Editar">
+                                  <Edit2 size={18} />
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    setEstudianteReasignar(est);
+                                    setShowReasignarModal(true);
+                                  }} 
+                                  className="text-blue-400 hover:text-blue-300"
+                                  title="Reasignar a otro curso"
+                                >
+                                  <BookOpen size={18} />
+                                </button>
+                                <button onClick={() => handleDeleteEstudiante(est.id, est.nombreApellido)} className="text-red-400 hover:text-red-300" title="Eliminar">
+                                  <Trash2 size={18} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             </div>
@@ -866,13 +1009,19 @@ export default function Admin() {
         </div>
       </div>
 
-      {showReasignarModal && estudianteReasignar && (
+      {showReasignarModal && (estudianteReasignar || seleccionMultiple.length > 0) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 max-w-md w-full">
-            <h3 className="text-xl font-bold text-white mb-4">Reasignar Estudiante</h3>
+            <h3 className="text-xl font-bold text-white mb-4">Reasignar Estudiante{seleccionMultiple.length > 1 ? 's' : ''}</h3>
             <div className="mb-4">
-              <p className="text-slate-300 mb-2"><strong>Estudiante:</strong> {estudianteReasignar.nombreApellido}</p>
-              <p className="text-slate-400 text-sm mb-4">Curso actual: {cursos.find(c => c.id === estudianteReasignar.cursoId)?.nombre || 'N/A'}</p>
+              {estudianteReasignar ? (
+                <>
+                  <p className="text-slate-300 mb-2"><strong>Estudiante:</strong> {estudianteReasignar.nombreApellido}</p>
+                  <p className="text-slate-400 text-sm mb-4">Curso actual: {cursos.find(c => c.id === estudianteReasignar.cursoId)?.nombre || 'N/A'}</p>
+                </>
+              ) : (
+                <p className="text-slate-300 mb-4"><strong>{seleccionMultiple.length}</strong> estudiante(s) seleccionado(s)</p>
+              )}
               
               <label className="block text-sm font-semibold text-slate-300 mb-2">Seleccionar Curso Destino</label>
               <select
@@ -881,7 +1030,7 @@ export default function Admin() {
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
               >
                 <option value="">-- Seleccionar Curso --</option>
-                {cursos.filter(c => c.id !== estudianteReasignar.cursoId).map(curso => (
+                {cursos.filter(c => !estudianteReasignar || c.id !== estudianteReasignar.cursoId).map(curso => (
                   <option key={curso.id} value={curso.id}>{curso.nombre}</option>
                 ))}
               </select>
@@ -889,7 +1038,7 @@ export default function Admin() {
             </div>
             <div className="flex gap-2">
               <button
-                onClick={handleReasignarEstudiante}
+                onClick={estudianteReasignar ? handleReasignarEstudiante : handleReasignarMultiple}
                 disabled={!cursoDestinoId}
                 className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
