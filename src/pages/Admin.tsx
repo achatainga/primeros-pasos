@@ -66,6 +66,8 @@ export default function Admin() {
   const [showProfesorForm, setShowProfesorForm] = useState(false);
   const [profesorForm, setProfesorForm] = useState({ nombre: '', telefono: '', email: '', password: '' });
   const [editingProfesor, setEditingProfesor] = useState<string | null>(null);
+  const [cursoDefaultId, setCursoDefaultId] = useState('');
+  const [configId, setConfigId] = useState('');
 
   const ADMIN_PASSWORD = 'PrimerosPasos2026';
 
@@ -88,15 +90,22 @@ export default function Admin() {
   const cargarDatos = async () => {
     setLoading(true);
     try {
-      const [estudiantesSnap, cursosSnap, profesoresSnap] = await Promise.all([
+      const [estudiantesSnap, cursosSnap, profesoresSnap, configSnap] = await Promise.all([
         getDocs(collection(db, 'estudiantes')),
         getDocs(collection(db, 'cursos')),
-        getDocs(collection(db, 'contactoProfesor'))
+        getDocs(collection(db, 'contactoProfesor')),
+        getDocs(collection(db, 'config'))
       ]);
       
       setEstudiantes(estudiantesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[]);
       setCursos(cursosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Curso[]);
       setProfesores(profesoresSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Profesor[]);
+      
+      if (configSnap.docs.length > 0) {
+        const config = configSnap.docs[0];
+        setConfigId(config.id);
+        setCursoDefaultId(config.data().cursoDefaultId || '');
+      }
     } catch (error) {
       console.error('Error al cargar datos:', error);
       toast.error('Error al cargar datos');
@@ -303,6 +312,21 @@ export default function Admin() {
     }
   };
 
+  const handleSaveCursoDefault = async () => {
+    try {
+      if (configId) {
+        await updateDoc(doc(db, 'config', configId), { cursoDefaultId });
+      } else {
+        const docRef = await addDoc(collection(db, 'config'), { cursoDefaultId });
+        setConfigId(docRef.id);
+      }
+      toast.success('Curso por defecto actualizado');
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al guardar configuración');
+    }
+  };
+
   if (!authenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -356,6 +380,38 @@ export default function Admin() {
                 Volver al Registro
               </a>
             </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg p-6 mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              <BookOpen size={24} className="text-amber-500" />
+              Configuración
+            </h2>
+          </div>
+          <div className="bg-slate-800 p-4 rounded-lg mb-4">
+            <label className="block text-sm font-semibold text-slate-300 mb-2">Curso por Defecto (Registro)</label>
+            <div className="flex gap-2">
+              <select
+                value={cursoDefaultId}
+                onChange={(e) => setCursoDefaultId(e.target.value)}
+                className="flex-1 px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+              >
+                <option value="">Ninguno (último curso)</option>
+                {cursos.map(curso => (
+                  <option key={curso.id} value={curso.id}>{curso.nombre}</option>
+                ))}
+              </select>
+              <button
+                onClick={handleSaveCursoDefault}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold py-2 px-4 rounded-lg flex items-center gap-2"
+              >
+                <Save size={20} />
+                Guardar
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">Este curso se seleccionará automáticamente en el formulario de registro</p>
           </div>
         </div>
 

@@ -42,16 +42,29 @@ export default function Registro() {
 
   const cargarCursos = async () => {
     try {
-      const q = query(collection(db, 'cursos'), where('estado', '==', 'abierto'));
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({
+      const [cursosSnap, configSnap] = await Promise.all([
+        getDocs(query(collection(db, 'cursos'), where('estado', '==', 'abierto'))),
+        getDocs(collection(db, 'config'))
+      ]);
+      
+      const data = cursosSnap.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Curso[];
       setCursos(data);
-      // Seleccionar el último curso por defecto
+      
+      // Seleccionar curso por defecto desde config o el último
       if (data.length > 0 && !formData.cursoId) {
-        setFormData(prev => ({ ...prev, cursoId: data[data.length - 1].id }));
+        let defaultCursoId = data[data.length - 1].id;
+        
+        if (configSnap.docs.length > 0) {
+          const configDefaultId = configSnap.docs[0].data().cursoDefaultId;
+          if (configDefaultId && data.some(c => c.id === configDefaultId)) {
+            defaultCursoId = configDefaultId;
+          }
+        }
+        
+        setFormData(prev => ({ ...prev, cursoId: defaultCursoId }));
       }
     } catch (error) {
       console.error('Error al cargar cursos:', error);
