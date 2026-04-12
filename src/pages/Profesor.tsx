@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, doc, setDoc, addDoc, updateDoc, deleteDoc, Timestamp, orderBy, limit, startAfter, endBefore, limitToLast, QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, setDoc, addDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UploadClient } from '@uploadcare/upload-client';
 import { toast } from 'react-toastify';
@@ -13,6 +13,7 @@ interface Estudiante {
   telefono: string;
   correo: string;
   cursoId: string;
+  fechaRegistro?: any;
 }
 
 interface Curso {
@@ -70,8 +71,7 @@ export default function Profesor() {
   const [profesorId, setProfesorId] = useState('');
   const [paginaActual, setPaginaActual] = useState(1);
   const [busqueda, setBusqueda] = useState('');
-  const [primerDoc, setPrimerDoc] = useState<QueryDocumentSnapshot | null>(null);
-  const [ultimoDoc, setUltimoDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [busquedaServidor, setBusquedaServidor] = useState('');
   const [totalEstudiantes, setTotalEstudiantes] = useState(0);
   const [modoGlobal, setModoGlobal] = useState(false);
   const ITEMS_POR_PAGINA = 25;
@@ -87,7 +87,7 @@ export default function Profesor() {
     if (cursoSeleccionado) {
       cargarEstudiantes();
     }
-  }, [cursoSeleccionado]);
+  }, [cursoSeleccionado, paginaActual]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,9 +264,10 @@ export default function Profesor() {
   const cargarEstudiantes = async () => {
     setLoading(true);
     try {
-      const totalQ = query(collection(db, 'estudiantes'), where('cursoId', '==', cursoSeleccionado));
-      const totalSnap = await getDocs(totalQ);
-      setTotalEstudiantes(totalSnap.size);
+      const inscripcionesSnap = await getDocs(
+        query(collection(db, 'inscripciones'), where('cursoId', '==', cursoSeleccionado))
+      );
+      setTotalEstudiantes(inscripcionesSnap.size);
 
       await cargarEstudiantesPagina('inicial');
     } catch (error) {
@@ -277,53 +278,56 @@ export default function Profesor() {
     }
   };
 
-  const cargarEstudiantesPagina = async (direccion: 'inicial' | 'siguiente' | 'anterior') => {
+  const cargarEstudiantesPagina = async (_direccion: 'inicial' | 'siguiente' | 'anterior', _searchTerm?: string) => {
     setLoading(true);
     try {
-      let q;
+      const searchValue = _searchTerm !== undefined ? _searchTerm : busquedaServidor;
       
-      if (direccion === 'inicial') {
-        q = query(
-          collection(db, 'estudiantes'),
-          where('cursoId', '==', cursoSeleccionado),
-          orderBy('fechaRegistro', 'desc'),
-          limit(ITEMS_POR_PAGINA)
-        );
-      } else if (direccion === 'siguiente' && ultimoDoc) {
-        q = query(
-          collection(db, 'estudiantes'),
-          where('cursoId', '==', cursoSeleccionado),
-          orderBy('fechaRegistro', 'desc'),
-          startAfter(ultimoDoc),
-          limit(ITEMS_POR_PAGINA)
-        );
-      } else if (direccion === 'anterior' && primerDoc) {
-        q = query(
-          collection(db, 'estudiantes'),
-          where('cursoId', '==', cursoSeleccionado),
-          orderBy('fechaRegistro', 'desc'),
-          endBefore(primerDoc),
-          limitToLast(ITEMS_POR_PAGINA)
-        );
-      } else {
-        return;
-      }
-
-      const snapshot = await getDocs(q);
+      // 1. Obtener inscripciones del curso
+      const inscripcionesSnap = await getDocs(
+        query(collection(db, 'inscripciones'), where('cursoId', '==', cursoSeleccionado))
+      );
+      const inscripcionesCurso = inscripcionesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      const estudiantesIdsCurso = inscripcionesCurso.map(i => i.estudianteId);
       
-      if (snapshot.empty) {
+      if (estudiantesIdsCurso.length === 0) {
         setEstudiantes([]);
         setAsistencias({});
         return;
       }
 
-      const estudiantesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[];
-      setEstudiantes(estudiantesData);
-      setPrimerDoc(snapshot.docs[0]);
-      setUltimoDoc(snapshot.docs[snapshot.docs.length - 1]);
+      // 2. Obtener estudiantes del curso
+      const estudiantesSnap = await getDocs(collection(db, 'estudiantes_v2'));
+      let estudiantesData = estudiantesSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(est => estudiantesIdsCurso.includes(est.id)) as any[];
+      
+      // 3. Filtrar por búsqueda si existe
+      if (searchValue) {
+        const searchLower = searchValue.toLowerCase();
+        estudiantesData = estudiantesData.filter(est => 
+          est.nombreApellido.toLowerCase().startsWith(searchLower)
+        );
+      }
 
+      // 4. Ordenar
+      estudiantesData.sort((a, b) => {
+        if (searchValue) {
+          return a.nombreApellido.localeCompare(b.nombreApellido);
+        }
+        return (b.fechaRegistro?.seconds || 0) - (a.fechaRegistro?.seconds || 0);
+      });
+
+      // 5. Paginar en cliente
+      const inicio = (paginaActual - 1) * ITEMS_POR_PAGINA;
+      const fin = inicio + ITEMS_POR_PAGINA;
+      const estudiantesPaginados = estudiantesData.slice(inicio, fin);
+      
+      setEstudiantes(estudiantesPaginados);
+
+      // 6. Cargar asistencias
       const asistenciasData: Record<string, Asistencia> = {};
-      for (const est of estudiantesData) {
+      for (const est of estudiantesPaginados) {
         const asistenciaDoc = await getDocs(
           query(collection(db, 'asistencias'), 
             where('estudianteId', '==', est.id),
@@ -356,9 +360,17 @@ export default function Profesor() {
     setLoading(true);
     setModoGlobal(true);
     try {
-      const q = query(collection(db, 'estudiantes'), where('cursoId', '==', cursoSeleccionado));
-      const snapshot = await getDocs(q);
-      const estudiantesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[];
+      const inscripcionesSnap = await getDocs(
+        query(collection(db, 'inscripciones'), where('cursoId', '==', cursoSeleccionado))
+      );
+      const inscripcionesCurso = inscripcionesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+      const estudiantesIds = inscripcionesCurso.map(i => i.estudianteId);
+      
+      const estudiantesSnap = await getDocs(collection(db, 'estudiantes_v2'));
+      const estudiantesData = estudiantesSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(est => estudiantesIds.includes(est.id)) as any[];
+      
       setEstudiantes(estudiantesData);
 
       const asistenciasData: Record<string, Asistencia> = {};
@@ -383,7 +395,7 @@ export default function Profesor() {
         }
       }
       setAsistencias(asistenciasData);
-      toast.success(`${snapshot.size} estudiantes cargados`);
+      toast.success(`${estudiantesData.length} estudiantes cargados`);
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al cargar todos los estudiantes');
@@ -866,9 +878,48 @@ export default function Profesor() {
                   type="text"
                   value={busqueda}
                   onChange={(e) => setBusqueda(e.target.value)}
-                  placeholder="Buscar por nombre, teléfono o correo..."
+                  placeholder="Buscar en todos los campos (nombre, teléfono, correo)..."
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
                 />
+              </div>
+            )}
+
+            {!modoGlobal && (
+              <div className="mb-4 flex gap-2">
+                <input
+                  type="text"
+                  value={busquedaServidor}
+                  onChange={(e) => setBusquedaServidor(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setPaginaActual(1);
+                      cargarEstudiantesPagina('inicial', busquedaServidor);
+                    }
+                  }}
+                  placeholder="Buscar por nombre (debe empezar con...)..."
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                />
+                <button
+                  onClick={() => {
+                    setPaginaActual(1);
+                    cargarEstudiantesPagina('inicial', busquedaServidor);
+                  }}
+                  className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
+                >
+                  Buscar
+                </button>
+                {busquedaServidor && (
+                  <button
+                    onClick={() => {
+                      setBusquedaServidor('');
+                      setPaginaActual(1);
+                      cargarEstudiantesPagina('inicial', '');
+                    }}
+                    className="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
+                  >
+                    Limpiar
+                  </button>
+                )}
               </div>
             )}
             
@@ -957,7 +1008,6 @@ export default function Profesor() {
               <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
                 <button
                   onClick={() => {
-                    cargarEstudiantesPagina('anterior');
                     setPaginaActual(p => Math.max(1, p - 1));
                   }}
                   disabled={paginaActual === 1 || loading}
@@ -970,7 +1020,6 @@ export default function Profesor() {
                 </span>
                 <button
                   onClick={() => {
-                    cargarEstudiantesPagina('siguiente');
                     setPaginaActual(p => p + 1);
                   }}
                   disabled={paginaActual >= totalPaginas || loading}

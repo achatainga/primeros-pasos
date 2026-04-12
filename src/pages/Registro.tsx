@@ -89,9 +89,36 @@ export default function Registro() {
     setLoading(true);
 
     try {
-      await addDoc(collection(db, 'estudiantes'), {
-        ...formData,
-        fechaRegistro: Timestamp.now()
+      // Verificar si estudiante ya existe (por correo)
+      let estudianteId = '';
+      if (formData.correo) {
+        const estudiantesSnap = await getDocs(
+          query(collection(db, 'estudiantes_v2'), where('correo', '==', formData.correo))
+        );
+        if (estudiantesSnap.docs.length > 0) {
+          estudianteId = estudiantesSnap.docs[0].id;
+        }
+      }
+
+      // Si no existe, crear estudiante nuevo
+      if (!estudianteId) {
+        const estudianteRef = await addDoc(collection(db, 'estudiantes_v2'), {
+          nombreApellido: formData.nombreApellido,
+          nombreApellidoLower: formData.nombreApellido.toLowerCase(),
+          telefono: formData.telefono,
+          correo: formData.correo,
+          fechaNacimiento: formData.fechaNacimiento,
+          tiempoMinisterio: formData.tiempoMinisterio,
+          fechaRegistro: Timestamp.now()
+        });
+        estudianteId = estudianteRef.id;
+      }
+
+      // Crear inscripción
+      await addDoc(collection(db, 'inscripciones'), {
+        estudianteId,
+        cursoId: formData.cursoId,
+        fechaInscripcion: Timestamp.now()
       });
 
       // Enviar email si tiene correo

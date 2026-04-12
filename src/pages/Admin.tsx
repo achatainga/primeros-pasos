@@ -1,20 +1,34 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, deleteDoc, doc, addDoc, updateDoc, Timestamp, query, orderBy, limit, startAfter, endBefore, limitToLast, QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc, addDoc, updateDoc, Timestamp, query, orderBy, limit, startAfter, endBefore, limitToLast, QueryDocumentSnapshot, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UploadClient } from '@uploadcare/upload-client';
 import { toast } from 'react-toastify';
-import { Lock, Users, BookOpen, Trash2, Edit2, Save, X, Plus, Upload, Mail } from 'lucide-react';
+import { Lock, Users, BookOpen, Trash2, Edit2, Save, X, Plus, Upload, Mail, Database } from 'lucide-react';
 import emailjs from '@emailjs/browser';
+import { migrarDatos } from '../lib/migracion';
+import { agregarCampoLowercase } from '../lib/migracion-lowercase';
+import { migrarAsistencias } from '../lib/migrar-asistencias';
 
-interface Estudiante {
+interface EstudianteV2 {
   id: string;
   nombreApellido: string;
   telefono: string;
   correo: string;
   fechaNacimiento: string;
   tiempoMinisterio: string;
-  cursoId: string;
   fechaRegistro: any;
+}
+
+interface Inscripcion {
+  id: string;
+  estudianteId: string;
+  cursoId: string;
+  fechaInscripcion: any;
+}
+
+interface EstudianteConCursos extends EstudianteV2 {
+  inscripciones: Inscripcion[];
+  cursosNombres: string[];
 }
 
 interface Curso {
@@ -47,11 +61,11 @@ interface Profesor {
 export default function Admin() {
   const [password, setPassword] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
-  const [estudiantes, setEstudiantes] = useState<Estudiante[]>([]);
+  const [estudiantes, setEstudiantes] = useState<EstudianteConCursos[]>([]);
   const [cursos, setCursos] = useState<Curso[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editData, setEditData] = useState<Partial<Estudiante>>({});
+  const [editData, setEditData] = useState<Partial<EstudianteV2>>({});
   const [showCursoForm, setShowCursoForm] = useState(false);
   const [cursoForm, setCursoForm] = useState({
     nombre: '',
@@ -69,16 +83,20 @@ export default function Admin() {
   const [cursoDefaultId, setCursoDefaultId] = useState('');
   const [configId, setConfigId] = useState('');
   const [showReasignarModal, setShowReasignarModal] = useState(false);
-  const [estudianteReasignar, setEstudianteReasignar] = useState<Estudiante | null>(null);
+  const [estudianteReasignar, setEstudianteReasignar] = useState<EstudianteConCursos | null>(null);
   const [cursoDestinoId, setCursoDestinoId] = useState('');
   const [seleccionMultiple, setSeleccionMultiple] = useState<string[]>([]);
   const [modoSeleccion, setModoSeleccion] = useState(false);
   const [paginaActual, setPaginaActual] = useState(1);
   const [busqueda, setBusqueda] = useState('');
+  const [busquedaServidor, setBusquedaServidor] = useState('');
   const [primerDoc, setPrimerDoc] = useState<QueryDocumentSnapshot | null>(null);
   const [ultimoDoc, setUltimoDoc] = useState<QueryDocumentSnapshot | null>(null);
   const [totalEstudiantes, setTotalEstudiantes] = useState(0);
   const [modoGlobal, setModoGlobal] = useState(false);
+  const [migrando, setMigrando] = useState(false);
+  const [migrandoLowercase, setMigrandoLowercase] = useState(false);
+  const [migrandoAsistencias, setMigrandoAsistencias] = useState(false);
   const ITEMS_POR_PAGINA = 25;
 
   const ADMIN_PASSWORD = 'PrimerosPasos2026';
@@ -117,7 +135,7 @@ export default function Admin() {
         setCursoDefaultId(config.data().cursoDefaultId || '');
       }
 
-      const totalSnap = await getDocs(collection(db, 'estudiantes'));
+      const totalSnap = await getDocs(collection(db, 'estudiantes_v2'));
       setTotalEstudiantes(totalSnap.size);
 
       await cargarEstudiantesPagina('inicial');
@@ -129,31 +147,68 @@ export default function Admin() {
     }
   };
 
-  const cargarEstudiantesPagina = async (direccion: 'inicial' | 'siguiente' | 'anterior') => {
+  const cargarEstudiantesPagina = async (direccion: 'inicial' | 'siguiente' | 'anterior', searchTerm?: string) => {
     setLoading(true);
     try {
       let q;
+      const searchValue = searchTerm !== undefined ? searchTerm : busquedaServidor;
       
       if (direccion === 'inicial') {
-        q = query(
-          collection(db, 'estudiantes'),
-          orderBy('fechaRegistro', 'desc'),
-          limit(ITEMS_POR_PAGINA)
-        );
+        if (searchValue) {
+          // Búsqueda por prefijo case-insensitive
+          const searchLower = searchValue.toLowerCase();
+          q = query(
+            collection(db, 'estudiantes_v2'),
+            where('nombreApellidoLower', '>=', searchLower),
+            where('nombreApellidoLower', '<=', searchLower + '\uf8ff'),
+            orderBy('nombreApellidoLower', 'asc'),
+            limit(ITEMS_POR_PAGINA)
+          );
+        } else {
+          q = query(
+            collection(db, 'estudiantes_v2'),
+            orderBy('fechaRegistro', 'desc'),
+            limit(ITEMS_POR_PAGINA)
+          );
+        }
       } else if (direccion === 'siguiente' && ultimoDoc) {
-        q = query(
-          collection(db, 'estudiantes'),
-          orderBy('fechaRegistro', 'desc'),
-          startAfter(ultimoDoc),
-          limit(ITEMS_POR_PAGINA)
-        );
+        if (searchValue) {
+          const searchLower = searchValue.toLowerCase();
+          q = query(
+            collection(db, 'estudiantes_v2'),
+            where('nombreApellidoLower', '>=', searchLower),
+            where('nombreApellidoLower', '<=', searchLower + '\uf8ff'),
+            orderBy('nombreApellidoLower', 'asc'),
+            startAfter(ultimoDoc),
+            limit(ITEMS_POR_PAGINA)
+          );
+        } else {
+          q = query(
+            collection(db, 'estudiantes_v2'),
+            orderBy('fechaRegistro', 'desc'),
+            startAfter(ultimoDoc),
+            limit(ITEMS_POR_PAGINA)
+          );
+        }
       } else if (direccion === 'anterior' && primerDoc) {
-        q = query(
-          collection(db, 'estudiantes'),
-          orderBy('fechaRegistro', 'desc'),
-          endBefore(primerDoc),
-          limitToLast(ITEMS_POR_PAGINA)
-        );
+        if (searchValue) {
+          const searchLower = searchValue.toLowerCase();
+          q = query(
+            collection(db, 'estudiantes_v2'),
+            where('nombreApellidoLower', '>=', searchLower),
+            where('nombreApellidoLower', '<=', searchLower + '\uf8ff'),
+            orderBy('nombreApellidoLower', 'asc'),
+            endBefore(primerDoc),
+            limitToLast(ITEMS_POR_PAGINA)
+          );
+        } else {
+          q = query(
+            collection(db, 'estudiantes_v2'),
+            orderBy('fechaRegistro', 'desc'),
+            endBefore(primerDoc),
+            limitToLast(ITEMS_POR_PAGINA)
+          );
+        }
       } else {
         return;
       }
@@ -161,11 +216,27 @@ export default function Admin() {
       const snapshot = await getDocs(q);
       
       if (snapshot.empty) {
-        toast.info('No hay más estudiantes');
+        setEstudiantes([]);
+        toast.info('No se encontraron resultados');
         return;
       }
 
-      setEstudiantes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[]);
+      const estudiantesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as EstudianteV2[];
+      
+      // Cargar inscripciones para estos estudiantes
+      const inscripcionesSnap = await getDocs(collection(db, 'inscripciones'));
+      const todasInscripciones = inscripcionesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Inscripcion[];
+      
+      const estudiantesConCursos: EstudianteConCursos[] = estudiantesData.map(est => {
+        const inscrips = todasInscripciones.filter(i => i.estudianteId === est.id);
+        const cursosNombres = inscrips.map(i => {
+          const curso = cursos.find(c => c.id === i.cursoId);
+          return curso ? curso.nombre.substring(0, 15) : 'N/A';
+        });
+        return { ...est, inscripciones: inscrips, cursosNombres };
+      });
+
+      setEstudiantes(estudiantesConCursos);
       setPrimerDoc(snapshot.docs[0]);
       setUltimoDoc(snapshot.docs[snapshot.docs.length - 1]);
     } catch (error) {
@@ -180,9 +251,25 @@ export default function Admin() {
     setLoading(true);
     setModoGlobal(true);
     try {
-      const snapshot = await getDocs(collection(db, 'estudiantes'));
-      setEstudiantes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[]);
-      toast.success(`${snapshot.size} estudiantes cargados`);
+      const [estudiantesSnap, inscripcionesSnap] = await Promise.all([
+        getDocs(collection(db, 'estudiantes_v2')),
+        getDocs(collection(db, 'inscripciones'))
+      ]);
+      
+      const estudiantesData = estudiantesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as EstudianteV2[];
+      const todasInscripciones = inscripcionesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Inscripcion[];
+      
+      const estudiantesConCursos: EstudianteConCursos[] = estudiantesData.map(est => {
+        const inscrips = todasInscripciones.filter(i => i.estudianteId === est.id);
+        const cursosNombres = inscrips.map(i => {
+          const curso = cursos.find(c => c.id === i.cursoId);
+          return curso ? curso.nombre.substring(0, 15) : 'N/A';
+        });
+        return { ...est, inscripciones: inscrips, cursosNombres };
+      });
+      
+      setEstudiantes(estudiantesConCursos);
+      toast.success(`${estudiantesSnap.size} estudiantes cargados`);
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al cargar todos los estudiantes');
@@ -192,9 +279,15 @@ export default function Admin() {
   };
 
   const handleDeleteEstudiante = async (id: string, nombre: string) => {
-    if (confirm(`¿Eliminar estudiante ${nombre}?`)) {
+    if (confirm(`¿Eliminar estudiante ${nombre}? Esto eliminará todas sus inscripciones.`)) {
       try {
-        await deleteDoc(doc(db, 'estudiantes', id));
+        // Eliminar inscripciones
+        const inscripSnap = await getDocs(query(collection(db, 'inscripciones'), where('estudianteId', '==', id)));
+        for (const inscripDoc of inscripSnap.docs) {
+          await deleteDoc(doc(db, 'inscripciones', inscripDoc.id));
+        }
+        // Eliminar estudiante
+        await deleteDoc(doc(db, 'estudiantes_v2', id));
         toast.success('Estudiante eliminado');
         cargarDatos();
       } catch (error) {
@@ -204,7 +297,7 @@ export default function Admin() {
     }
   };
 
-  const startEdit = (estudiante: Estudiante) => {
+  const startEdit = (estudiante: EstudianteConCursos) => {
     setEditingId(estudiante.id);
     setEditData(estudiante);
   };
@@ -212,7 +305,11 @@ export default function Admin() {
   const saveEdit = async () => {
     if (!editingId) return;
     try {
-      await updateDoc(doc(db, 'estudiantes', editingId), editData);
+      const updateData: any = { ...editData };
+      if (editData.nombreApellido) {
+        updateData.nombreApellidoLower = editData.nombreApellido.toLowerCase();
+      }
+      await updateDoc(doc(db, 'estudiantes_v2', editingId), updateData);
       toast.success('Estudiante actualizado');
       setEditingId(null);
       setEditData({});
@@ -404,6 +501,20 @@ export default function Admin() {
     }
   };
 
+  const handleMigrarDatos = async () => {
+    if (!confirm('¿Migrar datos a modelo normalizado? Esto creará estudiantes_v2 e inscripciones. Los datos legacy se mantendrán.')) return;
+    
+    setMigrando(true);
+    try {
+      const resultado = await migrarDatos();
+      alert(`Migración completada:\n- Estudiantes únicos: ${resultado.estudiantesUnicos}\n- Inscripciones: ${resultado.inscripciones}\n- Duplicados eliminados: ${resultado.duplicadosEliminados}`);
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setMigrando(false);
+    }
+  };
+
   const handleReasignarEstudiante = async () => {
     if (!estudianteReasignar || !cursoDestinoId) {
       toast.error('Selecciona un curso destino');
@@ -411,18 +522,14 @@ export default function Admin() {
     }
     
     try {
-      // Crear nuevo registro de estudiante con el nuevo curso
-      await addDoc(collection(db, 'estudiantes'), {
-        nombreApellido: estudianteReasignar.nombreApellido,
-        telefono: estudianteReasignar.telefono,
-        correo: estudianteReasignar.correo,
-        fechaNacimiento: estudianteReasignar.fechaNacimiento,
-        tiempoMinisterio: estudianteReasignar.tiempoMinisterio,
+      // Solo crear inscripción nueva (NO duplicar estudiante)
+      await addDoc(collection(db, 'inscripciones'), {
+        estudianteId: estudianteReasignar.id,
         cursoId: cursoDestinoId,
-        fechaRegistro: Timestamp.now()
+        fechaInscripcion: Timestamp.now()
       });
       
-      toast.success(`${estudianteReasignar.nombreApellido} asignado al nuevo curso`);
+      toast.success(`${estudianteReasignar.nombreApellido} inscrito en nuevo curso`);
       setShowReasignarModal(false);
       setEstudianteReasignar(null);
       setCursoDestinoId('');
@@ -463,14 +570,10 @@ export default function Admin() {
       const estudiantesSeleccionados = estudiantes.filter(e => seleccionMultiple.includes(e.id));
       
       for (const est of estudiantesSeleccionados) {
-        await addDoc(collection(db, 'estudiantes'), {
-          nombreApellido: est.nombreApellido,
-          telefono: est.telefono,
-          correo: est.correo,
-          fechaNacimiento: est.fechaNacimiento,
-          tiempoMinisterio: est.tiempoMinisterio,
+        await addDoc(collection(db, 'inscripciones'), {
+          estudianteId: est.id,
           cursoId: cursoDestinoId,
-          fechaRegistro: Timestamp.now()
+          fechaInscripcion: Timestamp.now()
         });
       }
       
@@ -486,13 +589,8 @@ export default function Admin() {
     }
   };
 
-  const getCursosEstudiante = (estudianteNombre: string, estudianteCorreo: string) => {
-    return estudiantes
-      .filter(e => e.nombreApellido === estudianteNombre && e.correo === estudianteCorreo)
-      .map(e => {
-        const curso = cursos.find(c => c.id === e.cursoId);
-        return curso ? curso.nombre.substring(0, 15) : 'N/A';
-      });
+  const getCursosEstudiante = (estudiante: EstudianteConCursos) => {
+    return estudiante.cursosNombres;
   };
 
   const estudiantesFiltrados = modoGlobal ? estudiantes.filter(est => {
@@ -593,6 +691,58 @@ export default function Admin() {
               </button>
             </div>
             <p className="text-xs text-slate-400 mt-2">Este curso se seleccionará automáticamente en el formulario de registro</p>
+          </div>
+          <div className="bg-slate-800 p-4 rounded-lg">
+            <label className="block text-sm font-semibold text-slate-300 mb-2">Migración de Datos</label>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={handleMigrarDatos}
+                disabled={migrando}
+                className="bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg flex items-center gap-2 disabled:opacity-50"
+              >
+                <Database size={20} />
+                {migrando ? 'Migrando...' : 'Migrar a Modelo Normalizado'}
+              </button>
+              <button
+                onClick={async () => {
+                  if (!confirm('¿Agregar campo nombreApellidoLower para búsqueda case-insensitive?')) return;
+                  setMigrandoLowercase(true);
+                  try {
+                    const resultado = await agregarCampoLowercase();
+                    alert(`Migración completada:\n- Total: ${resultado.total}\n- Actualizados: ${resultado.actualizados}`);
+                  } catch (error) {
+                    console.error('Error:', error);
+                  } finally {
+                    setMigrandoLowercase(false);
+                  }
+                }}
+                disabled={migrandoLowercase}
+                className="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg flex items-center gap-2 disabled:opacity-50"
+              >
+                <Database size={20} />
+                {migrandoLowercase ? 'Agregando...' : 'Agregar Campo Lowercase'}
+              </button>
+              <button
+                onClick={async () => {
+                  if (!confirm('¿Migrar asistencias de IDs legacy a IDs nuevos?')) return;
+                  setMigrandoAsistencias(true);
+                  try {
+                    const resultado = await migrarAsistencias();
+                    alert(`Migración completada:\n- Total: ${resultado.total}\n- Migradas: ${resultado.migradas}\n- No encontradas: ${resultado.noEncontradas}`);
+                  } catch (error) {
+                    console.error('Error:', error);
+                  } finally {
+                    setMigrandoAsistencias(false);
+                  }
+                }}
+                disabled={migrandoAsistencias}
+                className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg flex items-center gap-2 disabled:opacity-50"
+              >
+                <Database size={20} />
+                {migrandoAsistencias ? 'Migrando...' : 'Migrar Asistencias'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">Crea estudiantes_v2 e inscripciones. Mantiene datos legacy. Campo lowercase permite búsqueda case-insensitive. Migrar asistencias actualiza IDs.</p>
           </div>
         </div>
 
@@ -963,33 +1113,71 @@ export default function Admin() {
           </div>
 
           <div className="mb-4 flex gap-2">
-            <input
-              type="text"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="Buscar por nombre, teléfono, correo o tiempo ministerio..."
-              className="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-              disabled={!modoGlobal}
-            />
             {!modoGlobal ? (
-              <button
-                onClick={cargarTodosEstudiantes}
-                className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
-              >
-                Cargar Todos para Buscar
-              </button>
+              <>
+                <input
+                  type="text"
+                  value={busquedaServidor}
+                  onChange={(e) => setBusquedaServidor(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setPaginaActual(1);
+                      cargarEstudiantesPagina('inicial', busquedaServidor);
+                    }
+                  }}
+                  placeholder="Buscar por nombre (case-insensitive)..."
+                  className="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                />
+                <button
+                  onClick={() => {
+                    setPaginaActual(1);
+                    cargarEstudiantesPagina('inicial', busquedaServidor);
+                  }}
+                  className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
+                >
+                  Buscar
+                </button>
+                {busquedaServidor && (
+                  <button
+                    onClick={() => {
+                      setBusquedaServidor('');
+                      setPaginaActual(1);
+                      cargarEstudiantesPagina('inicial', '');
+                    }}
+                    className="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
+                  >
+                    Limpiar
+                  </button>
+                )}
+                <button
+                  onClick={cargarTodosEstudiantes}
+                  className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
+                >
+                  Búsqueda Avanzada
+                </button>
+              </>
             ) : (
-              <button
-                onClick={() => {
-                  setModoGlobal(false);
-                  setBusqueda('');
-                  setPaginaActual(1);
-                  cargarEstudiantesPagina('inicial');
-                }}
-                className="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
-              >
-                Volver a Paginación
-              </button>
+              <>
+                <input
+                  type="text"
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                  placeholder="Buscar en todos los campos (nombre, teléfono, correo, ministerio)..."
+                  className="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                />
+                <button
+                  onClick={() => {
+                    setModoGlobal(false);
+                    setBusqueda('');
+                    setBusquedaServidor('');
+                    setPaginaActual(1);
+                    cargarEstudiantesPagina('inicial');
+                  }}
+                  className="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
+                >
+                  Volver a Paginación
+                </button>
+              </>
             )}
           </div>
 
@@ -1025,7 +1213,7 @@ export default function Admin() {
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {estudiantesPaginados.map((est, idx) => {
-                    const cursosEst = getCursosEstudiante(est.nombreApellido, est.correo);
+                    const cursosEst = getCursosEstudiante(est);
                     return (
                       <tr key={est.id} className={`hover:bg-slate-800/30 ${
                         seleccionMultiple.includes(est.id) ? 'bg-blue-500/10' : ''
@@ -1161,7 +1349,7 @@ export default function Admin() {
               {estudianteReasignar ? (
                 <>
                   <p className="text-slate-300 mb-2"><strong>Estudiante:</strong> {estudianteReasignar.nombreApellido}</p>
-                  <p className="text-slate-400 text-sm mb-4">Curso actual: {cursos.find(c => c.id === estudianteReasignar.cursoId)?.nombre || 'N/A'}</p>
+                  <p className="text-slate-400 text-sm mb-4">Cursos actuales: {estudianteReasignar.cursosNombres.join(', ')}</p>
                 </>
               ) : (
                 <p className="text-slate-300 mb-4"><strong>{seleccionMultiple.length}</strong> estudiante(s) seleccionado(s)</p>
@@ -1174,7 +1362,7 @@ export default function Admin() {
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
               >
                 <option value="">-- Seleccionar Curso --</option>
-                {cursos.filter(c => !estudianteReasignar || c.id !== estudianteReasignar.cursoId).map(curso => (
+                {cursos.map(curso => (
                   <option key={curso.id} value={curso.id}>{curso.nombre}</option>
                 ))}
               </select>
