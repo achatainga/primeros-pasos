@@ -46,6 +46,15 @@
   //     ]
   //   },
   // ]
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "estudiantes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cursoId", "order": "ASCENDING" },
+        { "fieldPath": "fechaRegistro", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

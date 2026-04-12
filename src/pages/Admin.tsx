@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, deleteDoc, doc, addDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc, addDoc, updateDoc, Timestamp, query, orderBy, limit, startAfter, endBefore, limitToLast, QueryDocumentSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UploadClient } from '@uploadcare/upload-client';
 import { toast } from 'react-toastify';
@@ -73,6 +73,13 @@ export default function Admin() {
   const [cursoDestinoId, setCursoDestinoId] = useState('');
   const [seleccionMultiple, setSeleccionMultiple] = useState<string[]>([]);
   const [modoSeleccion, setModoSeleccion] = useState(false);
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [busqueda, setBusqueda] = useState('');
+  const [primerDoc, setPrimerDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [ultimoDoc, setUltimoDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [totalEstudiantes, setTotalEstudiantes] = useState(0);
+  const [modoGlobal, setModoGlobal] = useState(false);
+  const ITEMS_POR_PAGINA = 25;
 
   const ADMIN_PASSWORD = 'PrimerosPasos2026';
 
@@ -95,14 +102,12 @@ export default function Admin() {
   const cargarDatos = async () => {
     setLoading(true);
     try {
-      const [estudiantesSnap, cursosSnap, profesoresSnap, configSnap] = await Promise.all([
-        getDocs(collection(db, 'estudiantes')),
+      const [cursosSnap, profesoresSnap, configSnap] = await Promise.all([
         getDocs(collection(db, 'cursos')),
         getDocs(collection(db, 'contactoProfesor')),
         getDocs(collection(db, 'config'))
       ]);
       
-      setEstudiantes(estudiantesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[]);
       setCursos(cursosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Curso[]);
       setProfesores(profesoresSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Profesor[]);
       
@@ -111,9 +116,76 @@ export default function Admin() {
         setConfigId(config.id);
         setCursoDefaultId(config.data().cursoDefaultId || '');
       }
+
+      const totalSnap = await getDocs(collection(db, 'estudiantes'));
+      setTotalEstudiantes(totalSnap.size);
+
+      await cargarEstudiantesPagina('inicial');
     } catch (error) {
       console.error('Error al cargar datos:', error);
       toast.error('Error al cargar datos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cargarEstudiantesPagina = async (direccion: 'inicial' | 'siguiente' | 'anterior') => {
+    setLoading(true);
+    try {
+      let q;
+      
+      if (direccion === 'inicial') {
+        q = query(
+          collection(db, 'estudiantes'),
+          orderBy('fechaRegistro', 'desc'),
+          limit(ITEMS_POR_PAGINA)
+        );
+      } else if (direccion === 'siguiente' && ultimoDoc) {
+        q = query(
+          collection(db, 'estudiantes'),
+          orderBy('fechaRegistro', 'desc'),
+          startAfter(ultimoDoc),
+          limit(ITEMS_POR_PAGINA)
+        );
+      } else if (direccion === 'anterior' && primerDoc) {
+        q = query(
+          collection(db, 'estudiantes'),
+          orderBy('fechaRegistro', 'desc'),
+          endBefore(primerDoc),
+          limitToLast(ITEMS_POR_PAGINA)
+        );
+      } else {
+        return;
+      }
+
+      const snapshot = await getDocs(q);
+      
+      if (snapshot.empty) {
+        toast.info('No hay más estudiantes');
+        return;
+      }
+
+      setEstudiantes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[]);
+      setPrimerDoc(snapshot.docs[0]);
+      setUltimoDoc(snapshot.docs[snapshot.docs.length - 1]);
+    } catch (error) {
+      console.error('Error al cargar estudiantes:', error);
+      toast.error('Error al cargar estudiantes');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cargarTodosEstudiantes = async () => {
+    setLoading(true);
+    setModoGlobal(true);
+    try {
+      const snapshot = await getDocs(collection(db, 'estudiantes'));
+      setEstudiantes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[]);
+      toast.success(`${snapshot.size} estudiantes cargados`);
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al cargar todos los estudiantes');
     } finally {
       setLoading(false);
     }
@@ -422,6 +494,19 @@ export default function Admin() {
         return curso ? curso.nombre.substring(0, 15) : 'N/A';
       });
   };
+
+  const estudiantesFiltrados = modoGlobal ? estudiantes.filter(est => {
+    const searchLower = busqueda.toLowerCase();
+    return (
+      est.nombreApellido.toLowerCase().includes(searchLower) ||
+      est.telefono.toLowerCase().includes(searchLower) ||
+      est.correo.toLowerCase().includes(searchLower) ||
+      est.tiempoMinisterio.toLowerCase().includes(searchLower)
+    );
+  }) : estudiantes;
+
+  const totalPaginas = Math.ceil(totalEstudiantes / ITEMS_POR_PAGINA);
+  const estudiantesPaginados = modoGlobal ? estudiantesFiltrados : estudiantes;
 
   if (!authenticated) {
     return (
@@ -877,10 +962,41 @@ export default function Admin() {
             </div>
           </div>
 
+          <div className="mb-4 flex gap-2">
+            <input
+              type="text"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por nombre, teléfono, correo o tiempo ministerio..."
+              className="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              disabled={!modoGlobal}
+            />
+            {!modoGlobal ? (
+              <button
+                onClick={cargarTodosEstudiantes}
+                className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
+              >
+                Cargar Todos para Buscar
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setModoGlobal(false);
+                  setBusqueda('');
+                  setPaginaActual(1);
+                  cargarEstudiantesPagina('inicial');
+                }}
+                className="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg whitespace-nowrap"
+              >
+                Volver a Paginación
+              </button>
+            )}
+          </div>
+
           {loading ? (
             <p className="text-center py-12 text-slate-400">Cargando...</p>
-          ) : estudiantes.length === 0 ? (
-            <p className="text-center py-12 text-slate-400">No hay estudiantes registrados</p>
+          ) : estudiantesPaginados.length === 0 ? (
+            <p className="text-center py-12 text-slate-400">{modoGlobal && busqueda ? 'No se encontraron resultados' : 'No hay estudiantes registrados'}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -908,7 +1024,7 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {estudiantes.map((est, idx) => {
+                  {estudiantesPaginados.map((est, idx) => {
                     const cursosEst = getCursosEstudiante(est.nombreApellido, est.correo);
                     return (
                       <tr key={est.id} className={`hover:bg-slate-800/30 ${
@@ -1004,6 +1120,34 @@ export default function Admin() {
                   );})}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {!modoGlobal && (
+            <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  cargarEstudiantesPagina('anterior');
+                  setPaginaActual(p => Math.max(1, p - 1));
+                }}
+                disabled={paginaActual === 1 || loading}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Anterior
+              </button>
+              <span className="text-slate-300">
+                Página {paginaActual} de {totalPaginas} • Total: {totalEstudiantes} estudiantes
+              </span>
+              <button
+                onClick={() => {
+                  cargarEstudiantesPagina('siguiente');
+                  setPaginaActual(p => p + 1);
+                }}
+                disabled={paginaActual >= totalPaginas || loading}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Siguiente
+              </button>
             </div>
           )}
         </div>

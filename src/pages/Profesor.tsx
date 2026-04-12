@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, doc, setDoc, addDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, setDoc, addDoc, updateDoc, deleteDoc, Timestamp, orderBy, limit, startAfter, endBefore, limitToLast, QueryDocumentSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UploadClient } from '@uploadcare/upload-client';
 import { toast } from 'react-toastify';
@@ -68,6 +68,13 @@ export default function Profesor() {
     email: ''
   });
   const [profesorId, setProfesorId] = useState('');
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [busqueda, setBusqueda] = useState('');
+  const [primerDoc, setPrimerDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [ultimoDoc, setUltimoDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [totalEstudiantes, setTotalEstudiantes] = useState(0);
+  const [modoGlobal, setModoGlobal] = useState(false);
+  const ITEMS_POR_PAGINA = 25;
 
   useEffect(() => {
     if (authenticated) {
@@ -257,12 +264,64 @@ export default function Profesor() {
   const cargarEstudiantes = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'estudiantes'), where('cursoId', '==', cursoSeleccionado));
+      const totalQ = query(collection(db, 'estudiantes'), where('cursoId', '==', cursoSeleccionado));
+      const totalSnap = await getDocs(totalQ);
+      setTotalEstudiantes(totalSnap.size);
+
+      await cargarEstudiantesPagina('inicial');
+    } catch (error) {
+      console.error('Error al cargar estudiantes:', error);
+      toast.error('Error al cargar estudiantes');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cargarEstudiantesPagina = async (direccion: 'inicial' | 'siguiente' | 'anterior') => {
+    setLoading(true);
+    try {
+      let q;
+      
+      if (direccion === 'inicial') {
+        q = query(
+          collection(db, 'estudiantes'),
+          where('cursoId', '==', cursoSeleccionado),
+          orderBy('fechaRegistro', 'desc'),
+          limit(ITEMS_POR_PAGINA)
+        );
+      } else if (direccion === 'siguiente' && ultimoDoc) {
+        q = query(
+          collection(db, 'estudiantes'),
+          where('cursoId', '==', cursoSeleccionado),
+          orderBy('fechaRegistro', 'desc'),
+          startAfter(ultimoDoc),
+          limit(ITEMS_POR_PAGINA)
+        );
+      } else if (direccion === 'anterior' && primerDoc) {
+        q = query(
+          collection(db, 'estudiantes'),
+          where('cursoId', '==', cursoSeleccionado),
+          orderBy('fechaRegistro', 'desc'),
+          endBefore(primerDoc),
+          limitToLast(ITEMS_POR_PAGINA)
+        );
+      } else {
+        return;
+      }
+
       const snapshot = await getDocs(q);
+      
+      if (snapshot.empty) {
+        setEstudiantes([]);
+        setAsistencias({});
+        return;
+      }
+
       const estudiantesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[];
       setEstudiantes(estudiantesData);
+      setPrimerDoc(snapshot.docs[0]);
+      setUltimoDoc(snapshot.docs[snapshot.docs.length - 1]);
 
-      // Cargar asistencias
       const asistenciasData: Record<string, Asistencia> = {};
       for (const est of estudiantesData) {
         const asistenciaDoc = await getDocs(
@@ -286,8 +345,48 @@ export default function Profesor() {
       }
       setAsistencias(asistenciasData);
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error al cargar estudiantes:', error);
       toast.error('Error al cargar estudiantes');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cargarTodosEstudiantes = async () => {
+    setLoading(true);
+    setModoGlobal(true);
+    try {
+      const q = query(collection(db, 'estudiantes'), where('cursoId', '==', cursoSeleccionado));
+      const snapshot = await getDocs(q);
+      const estudiantesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Estudiante[];
+      setEstudiantes(estudiantesData);
+
+      const asistenciasData: Record<string, Asistencia> = {};
+      for (const est of estudiantesData) {
+        const asistenciaDoc = await getDocs(
+          query(collection(db, 'asistencias'), 
+            where('estudianteId', '==', est.id),
+            where('cursoId', '==', cursoSeleccionado)
+          )
+        );
+        if (!asistenciaDoc.empty) {
+          asistenciasData[est.id] = asistenciaDoc.docs[0].data() as Asistencia;
+        } else {
+          asistenciasData[est.id] = {
+            estudianteId: est.id,
+            cursoId: cursoSeleccionado,
+            clase1: false,
+            clase2: false,
+            clase3: false,
+            clase4: false
+          };
+        }
+      }
+      setAsistencias(asistenciasData);
+      toast.success(`${snapshot.size} estudiantes cargados`);
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al cargar todos los estudiantes');
     } finally {
       setLoading(false);
     }
@@ -331,7 +430,8 @@ export default function Profesor() {
     doc.text(`Curso: ${curso?.nombre || ''}`, 14, 28);
     doc.text(`Fecha: ${new Date().toLocaleDateString('es-DO')}`, 14, 35);
 
-    const tableData = estudiantes.map((est, idx) => {
+    const estudiantesParaPDF = modoGlobal ? estudiantes : estudiantes;
+    const tableData = estudiantesParaPDF.map((est, idx) => {
       const asist = asistencias[est.id];
       return [
         idx + 1,
@@ -365,7 +465,8 @@ export default function Profesor() {
     doc.text(`Curso: ${curso?.nombre || ''}`, 14, 28);
     doc.text(`Fecha: ${new Date().toLocaleDateString('es-DO')}`, 14, 35);
 
-    const tableData = estudiantes.map((est, idx) => {
+    const estudiantesParaPDF = modoGlobal ? estudiantes : estudiantes;
+    const tableData = estudiantesParaPDF.map((est, idx) => {
       const asist = asistencias[est.id];
       return [
         idx + 1,
@@ -387,6 +488,18 @@ export default function Profesor() {
     doc.save(`notas-${curso?.nombre}-${new Date().toISOString().split('T')[0]}.pdf`);
     toast.success('PDF descargado');
   };
+
+  const estudiantesFiltrados = modoGlobal ? estudiantes.filter(est => {
+    const searchLower = busqueda.toLowerCase();
+    return (
+      est.nombreApellido.toLowerCase().includes(searchLower) ||
+      est.telefono.toLowerCase().includes(searchLower) ||
+      est.correo.toLowerCase().includes(searchLower)
+    );
+  }) : estudiantes;
+
+  const totalPaginas = Math.ceil(totalEstudiantes / ITEMS_POR_PAGINA);
+  const estudiantesPaginados = modoGlobal ? estudiantesFiltrados : estudiantes;
 
   if (!authenticated) {
     return (
@@ -721,12 +834,48 @@ export default function Profesor() {
 
         {cursoSeleccionado && (
           <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Estudiantes ({estudiantes.length})</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-gray-900">Estudiantes ({totalEstudiantes})</h2>
+              <div className="flex gap-2">
+                {!modoGlobal ? (
+                  <button
+                    onClick={cargarTodosEstudiantes}
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg"
+                  >
+                    Cargar Todos para Buscar
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setModoGlobal(false);
+                      setBusqueda('');
+                      setPaginaActual(1);
+                      cargarEstudiantesPagina('inicial');
+                    }}
+                    className="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg"
+                  >
+                    Volver a Paginación
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {modoGlobal && (
+              <div className="mb-4">
+                <input
+                  type="text"
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                  placeholder="Buscar por nombre, teléfono o correo..."
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+            )}
             
             {loading ? (
               <p className="text-center py-12 text-gray-600">Cargando...</p>
-            ) : estudiantes.length === 0 ? (
-              <p className="text-center py-12 text-gray-600">No hay estudiantes en este curso</p>
+            ) : estudiantesPaginados.length === 0 ? (
+              <p className="text-center py-12 text-gray-600">{modoGlobal && busqueda ? 'No se encontraron resultados' : 'No hay estudiantes en este curso'}</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -743,7 +892,7 @@ export default function Profesor() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {estudiantes.map((est, idx) => {
+                    {estudiantesPaginados.map((est, idx) => {
                       const asist = asistencias[est.id];
                       return (
                         <tr key={est.id} className="hover:bg-gray-50">
@@ -801,6 +950,34 @@ export default function Profesor() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {!modoGlobal && (
+              <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
+                <button
+                  onClick={() => {
+                    cargarEstudiantesPagina('anterior');
+                    setPaginaActual(p => Math.max(1, p - 1));
+                  }}
+                  disabled={paginaActual === 1 || loading}
+                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Anterior
+                </button>
+                <span className="text-gray-700">
+                  Página {paginaActual} de {totalPaginas} • Total: {totalEstudiantes} estudiantes
+                </span>
+                <button
+                  onClick={() => {
+                    cargarEstudiantesPagina('siguiente');
+                    setPaginaActual(p => p + 1);
+                  }}
+                  disabled={paginaActual >= totalPaginas || loading}
+                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Siguiente
+                </button>
               </div>
             )}
           </div>
