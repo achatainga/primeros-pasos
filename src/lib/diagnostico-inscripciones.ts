@@ -79,14 +79,12 @@ export async function diagnosticarInscripciones(cursoId: string): Promise<Report
         inscripcionId: inscripcion.id,
         estudianteId: estudianteId,
         cursoId: inscripcion.cursoId,
-        existeEnLegacy,
-        legacyId: inscripcion.legacyId || 'N/A'
+        existeEnLegacy
       });
 
       console.warn(`⚠️ Inscripción huérfana: ${inscripcion.id}`);
       console.warn(`   - estudianteId: ${estudianteId}`);
       console.warn(`   - Existe en legacy: ${existeEnLegacy ? 'SÍ' : 'NO'}`);
-      console.warn(`   - legacyId: ${inscripcion.legacyId || 'N/A'}`);
     }
   }
 
@@ -135,7 +133,6 @@ export async function diagnosticarInscripciones(cursoId: string): Promise<Report
       console.log(`${idx + 1}. Inscripción: ${h.inscripcionId}`);
       console.log(`   - estudianteId: ${h.estudianteId}`);
       console.log(`   - Existe en legacy: ${h.existeEnLegacy ? 'SÍ' : 'NO'}`);
-      console.log(`   - legacyId: ${h.legacyId}`);
     });
     console.log('');
   }
