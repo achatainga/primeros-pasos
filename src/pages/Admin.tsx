@@ -522,7 +522,24 @@ export default function Admin() {
     }
     
     try {
-      // Solo crear inscripción nueva (NO duplicar estudiante)
+      // ✅ FIX: Verificar si ya está inscrito antes de crear
+      const inscripcionExistente = await getDocs(
+        query(
+          collection(db, 'inscripciones'),
+          where('estudianteId', '==', estudianteReasignar.id),
+          where('cursoId', '==', cursoDestinoId)
+        )
+      );
+
+      if (!inscripcionExistente.empty) {
+        toast.warning(`${estudianteReasignar.nombreApellido} ya está inscrito en este curso`);
+        setShowReasignarModal(false);
+        setEstudianteReasignar(null);
+        setCursoDestinoId('');
+        return;
+      }
+
+      // Solo crear inscripción si NO existe
       await addDoc(collection(db, 'inscripciones'), {
         estudianteId: estudianteReasignar.id,
         cursoId: cursoDestinoId,
@@ -569,15 +586,41 @@ export default function Admin() {
     try {
       const estudiantesSeleccionados = estudiantes.filter(e => seleccionMultiple.includes(e.id));
       
+      let inscritos = 0;
+      let yaInscritos = 0;
+      
       for (const est of estudiantesSeleccionados) {
-        await addDoc(collection(db, 'inscripciones'), {
-          estudianteId: est.id,
-          cursoId: cursoDestinoId,
-          fechaInscripcion: Timestamp.now()
-        });
+        // ✅ FIX: Verificar si ya está inscrito antes de crear
+        const inscripcionExistente = await getDocs(
+          query(
+            collection(db, 'inscripciones'),
+            where('estudianteId', '==', est.id),
+            where('cursoId', '==', cursoDestinoId)
+          )
+        );
+
+        if (inscripcionExistente.empty) {
+          // Solo crear si NO existe
+          await addDoc(collection(db, 'inscripciones'), {
+            estudianteId: est.id,
+            cursoId: cursoDestinoId,
+            fechaInscripcion: Timestamp.now()
+          });
+          inscritos++;
+        } else {
+          yaInscritos++;
+        }
       }
       
-      toast.success(`${seleccionMultiple.length} estudiante(s) reasignado(s)`);
+      // Mostrar resultado detallado
+      if (inscritos > 0 && yaInscritos > 0) {
+        toast.success(`✅ ${inscritos} inscrito(s) | ⚠️ ${yaInscritos} ya estaba(n) inscrito(s)`);
+      } else if (inscritos > 0) {
+        toast.success(`✅ ${inscritos} estudiante(s) inscrito(s)`);
+      } else {
+        toast.warning(`⚠️ Todos los estudiantes ya estaban inscritos en este curso`);
+      }
+      
       setShowReasignarModal(false);
       setSeleccionMultiple([]);
       setModoSeleccion(false);
